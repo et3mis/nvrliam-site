@@ -904,7 +904,7 @@ export default function PortfolioPage() {
           </div>
 
           <div className="discord-callout reveal delay-3">
-            <span>MAKE SURE TO JOIN DISCORD SERVER</span>
+            <span>JOIN DISCORD SERVER FOR FULL PORTFOLIO | DISCORD</span>
             <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="discord-callout-btn">
               Join Server
             </a>
