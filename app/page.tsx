@@ -27,6 +27,13 @@ type ShowcaseItem = {
   desc: string;
 };
 
+type BigShowcaseItem = {
+  title: string;
+  embed: string;
+  credits: string;
+  bio: string;
+};
+
 type SkillItem = {
   label: string;
   mark: string;
@@ -44,25 +51,19 @@ type PriceTier = {
 type ParticleDot = {
   left: string;
   top: string;
+  leftPct: number;
+  topPct: number;
   size: number;
   opacity: number;
   delay: string;
   duration: string;
   dx: number;
   dy: number;
-  lift: number;
   blur: number;
-  scaleMin: number;
-  scaleMax: number;
 };
 
 type CSSVars = CSSProperties & {
-  "--dx"?: number | string;
-  "--dy"?: number | string;
-  "--lift"?: number | string;
   "--blur"?: string;
-  "--scale-min"?: number | string;
-  "--scale-max"?: number | string;
   "--opacity-base"?: number | string;
 };
 
@@ -72,6 +73,7 @@ const DISCORD_POLL_MS = 30000;
 const INITIAL_BOOT_MS = 900;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
 const BG_MUSIC_VOLUME = 0.18;
+const PANEL_EXIT_MS = 240;
 
 const avatarFallback = `data:image/svg+xml;utf8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
@@ -108,10 +110,18 @@ const showcases: ShowcaseItem[] = [
   { title: "Round System", embed: "https://streamable.com/e/1sgsoz?autoplay=0&loop=0", desc: "Voting, round loop, teleports." },
   { title: "Gun System", embed: "https://streamable.com/e/am7pzp?autoplay=0&loop=0", desc: "Gun logic and reload." },
   { title: "Death System", embed: "https://streamable.com/e/t4c8oj?autoplay=0&loop=0", desc: "Death flow and anti-fling." },
-  { title: "Flying System", embed: "https://streamable.com/e/l7ugm?autoplay=0&loop=0", desc: "Smooth flight and boost." },
   { title: "TD Pathing", embed: "https://streamable.com/e/lqy3i9?autoplay=0&loop=0", desc: "Checkpoint pathing and overheads." },
   { title: "NPC Dialogue", embed: "https://streamable.com/e/edelsf?autoplay=0&loop=0", desc: "Monologue and dialogue setup." },
   { title: "Admin Panel", embed: "https://streamable.com/e/fnehz2?autoplay=0&loop=0", desc: "Admin UI and commands." },
+];
+
+const bigShowcases: BigShowcaseItem[] = [
+  {
+    title: "DYNAMIC MOVEMENT SYSTEM",
+    embed: "https://streamable.com/e/8nqqaa?autoplay=0&loop=0",
+    credits: "Credits: SkaterStudios ( HELPED ) & nvrliam ( ME )",
+    bio: "Join Discord!",
+  },
 ];
 
 const prices: PriceTier[] = [
@@ -124,28 +134,26 @@ const prices: PriceTier[] = [
 
 function createParticleDots(count = 64): ParticleDot[] {
   return Array.from({ length: count }, (_, i) => {
-    const left = 1 + ((i * 17) % 98);
-    const top = 2 + ((i * 23) % 94);
+    const leftPct = 1 + ((i * 17) % 98);
+    const topPct = 2 + ((i * 23) % 94);
     const size = 2 + (i % 5);
     const opacity = Math.min(0.2 + (i % 7) * 0.09, 0.9);
     const dx = Number((((i % 11) - 5) * (0.55 + (i % 3) * 0.18)).toFixed(2));
     const dy = Number((((((i + 4) % 11) - 5) || 1) * (0.5 + (i % 4) * 0.16)).toFixed(2));
-    const lift = 2 + (i % 6);
     const blur = Math.max(0, (size - 2) * 0.4);
 
     return {
-      left: `${left}%`,
-      top: `${top}%`,
+      left: `${leftPct}%`,
+      top: `${topPct}%`,
+      leftPct,
+      topPct,
       size,
       opacity,
       delay: `${(i % 12) * 0.18}s`,
       duration: `${4.8 + (i % 9) * 0.7}s`,
       dx,
       dy,
-      lift,
       blur,
-      scaleMin: 0.72 + (i % 3) * 0.06,
-      scaleMax: 1.06 + (i % 4) * 0.07,
     };
   });
 }
@@ -213,6 +221,7 @@ function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
 
 export default function PortfolioPage() {
   const [panel, setPanel] = useState<Panel>("none");
+  const [panelClosing, setPanelClosing] = useState(false);
   const [query, setQuery] = useState("");
   const [emailCopied, setEmailCopied] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
@@ -221,22 +230,26 @@ export default function PortfolioPage() {
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [musicUnlocked, setMusicUnlocked] = useState(false);
   const [avatarIndex, setAvatarIndex] = useState(0);
+  const [loadedVideos, setLoadedVideos] = useState<Record<string, boolean>>({});
 
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const particleRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const fadeFrameRef = useRef<number | null>(null);
+  const panelCloseTimerRef = useRef<number | null>(null);
 
   const particleDots = useMemo(() => createParticleDots(), []);
 
   const filteredShowcases = useMemo(() => {
     const value = query.trim().toLowerCase();
     if (!value) return showcases;
+
     return showcases.filter(
       (item) =>
         item.title.toLowerCase().includes(value) ||
-        item.desc.toLowerCase().includes(value)
+        item.desc.toLowerCase().includes(value),
     );
   }, [query]);
 
@@ -275,6 +288,29 @@ export default function PortfolioPage() {
   }, []);
 
   useEffect(() => {
+    const links: HTMLLinkElement[] = [];
+    const entries = [
+      { rel: "preconnect", href: "https://streamable.com", crossOrigin: "" },
+      { rel: "dns-prefetch", href: "https://streamable.com" },
+    ];
+
+    for (const entry of entries) {
+      const link = document.createElement("link");
+      link.rel = entry.rel;
+      link.href = entry.href;
+      if ("crossOrigin" in entry) link.crossOrigin = entry.crossOrigin;
+      document.head.appendChild(link);
+      links.push(link);
+    }
+
+    return () => {
+      for (const link of links) {
+        if (link.parentNode) link.parentNode.removeChild(link);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
 
@@ -283,43 +319,101 @@ export default function PortfolioPage() {
       targetY: 0,
       currentX: 0,
       currentY: 0,
+      cursorX: 0,
+      cursorY: 0,
+      cursorActive: false,
+      left: 0,
+      top: 0,
+      width: 1,
+      height: 1,
       raf: 0,
     };
 
-    const updateVars = () => {
+    const updateRect = () => {
+      const rect = el.getBoundingClientRect();
+      state.left = rect.left;
+      state.top = rect.top;
+      state.width = Math.max(rect.width, 1);
+      state.height = Math.max(rect.height, 1);
+    };
+
+    const frame = () => {
       state.currentX += (state.targetX - state.currentX) * 0.08;
       state.currentY += (state.targetY - state.currentY) * 0.08;
 
       el.style.setProperty("--mx", state.currentX.toFixed(4));
       el.style.setProperty("--my", state.currentY.toFixed(4));
-      el.style.setProperty("--pmx", (state.currentX * 14).toFixed(4));
-      el.style.setProperty("--pmy", (state.currentY * 14).toFixed(4));
 
-      state.raf = window.requestAnimationFrame(updateVars);
+      const repelRadius = Math.min(170, Math.max(95, state.width * 0.13));
+      const repelStrength = 34;
+
+      for (const node of particleRefs.current) {
+        if (!node) continue;
+
+        const baseDx = Number(node.dataset.dx ?? 0);
+        const baseDy = Number(node.dataset.dy ?? 0);
+        const leftPct = Number(node.dataset.leftpct ?? 50);
+        const topPct = Number(node.dataset.toppct ?? 50);
+
+        const dotX = (leftPct / 100) * state.width;
+        const dotY = (topPct / 100) * state.height;
+
+        const driftX = state.currentX * 14 * baseDx;
+        const driftY = state.currentY * 14 * baseDy;
+
+        let repelX = 0;
+        let repelY = 0;
+
+        if (state.cursorActive) {
+          const vx = dotX - state.cursorX;
+          const vy = dotY - state.cursorY;
+          const dist = Math.hypot(vx, vy) || 0.001;
+
+          if (dist < repelRadius) {
+            const force = Math.pow(1 - dist / repelRadius, 2) * repelStrength;
+            repelX = (vx / dist) * force;
+            repelY = (vy / dist) * force;
+          }
+        }
+
+        node.style.transform = `translate3d(${(driftX + repelX).toFixed(2)}px, ${(driftY + repelY).toFixed(2)}px, 0)`;
+      }
+
+      state.raf = window.requestAnimationFrame(frame);
     };
 
     const onMove = (e: MouseEvent) => {
-      const r = el.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width;
-      const y = (e.clientY - r.top) / r.height;
+      updateRect();
 
-      state.targetX = (x - 0.5) * 2;
-      state.targetY = (y - 0.5) * 2;
+      const localX = e.clientX - state.left;
+      const localY = e.clientY - state.top;
+
+      state.targetX = (localX / state.width - 0.5) * 2;
+      state.targetY = (localY / state.height - 0.5) * 2;
+      state.cursorX = localX;
+      state.cursorY = localY;
+      state.cursorActive = true;
     };
 
     const onLeave = () => {
       state.targetX = 0;
       state.targetY = 0;
+      state.cursorActive = false;
     };
 
-    state.raf = window.requestAnimationFrame(updateVars);
+    updateRect();
+    state.raf = window.requestAnimationFrame(frame);
 
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("mouseleave", onLeave);
+    window.addEventListener("resize", updateRect);
+    window.addEventListener("scroll", updateRect, { passive: true });
 
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
+      window.removeEventListener("resize", updateRect);
+      window.removeEventListener("scroll", updateRect);
       window.cancelAnimationFrame(state.raf);
     };
   }, []);
@@ -339,9 +433,11 @@ export default function PortfolioPage() {
       return;
     }
 
+    setLoadedVideos({});
+
     const timer = window.setTimeout(() => {
       searchInputRef.current?.focus();
-    }, 80);
+    }, 120);
 
     return () => {
       window.clearTimeout(timer);
@@ -353,7 +449,7 @@ export default function PortfolioPage() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setPanel("none");
+        closePanel();
       }
     };
 
@@ -525,8 +621,45 @@ export default function PortfolioPage() {
       if (fadeFrameRef.current !== null) {
         window.cancelAnimationFrame(fadeFrameRef.current);
       }
+
+      if (panelCloseTimerRef.current !== null) {
+        window.clearTimeout(panelCloseTimerRef.current);
+      }
     };
   }, []);
+
+  const openPanel = (next: Exclude<Panel, "none">) => {
+    if (panelCloseTimerRef.current !== null) {
+      window.clearTimeout(panelCloseTimerRef.current);
+      panelCloseTimerRef.current = null;
+    }
+
+    setPanelClosing(false);
+    setPanel(next);
+  };
+
+  const closePanel = () => {
+    if (panel === "none" || panelClosing) return;
+
+    setPanelClosing(true);
+
+    if (panelCloseTimerRef.current !== null) {
+      window.clearTimeout(panelCloseTimerRef.current);
+    }
+
+    panelCloseTimerRef.current = window.setTimeout(() => {
+      setPanel("none");
+      setPanelClosing(false);
+      panelCloseTimerRef.current = null;
+    }, PANEL_EXIT_MS);
+  };
+
+  const markVideoLoaded = (key: string) => {
+    setLoadedVideos((prev) => {
+      if (prev[key]) return prev;
+      return { ...prev, [key]: true };
+    });
+  };
 
   const copyEmail = async () => {
     const email = "liamj7872@gmail.com";
@@ -563,14 +696,20 @@ export default function PortfolioPage() {
     <main className={`page-shell ${pageReady ? "ready" : "booting"}`} ref={shellRef}>
       <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" />
 
-      <div className="bg-aurora parallax" />
-      <div className="bg-grid parallax" />
-      <div className="bg-network parallax" />
+      <div className="bg-aurora aurora-layer" />
+      <div className="bg-grid grid-layer" />
+      <div className="bg-network network-layer" />
 
-      <div className="bg-sword-wrap parallax" aria-hidden="true">
+      <div className="bg-sword-wrap sword-layer" aria-hidden="true">
+        <div className="sword-aura aura-1" />
+        <div className="sword-aura aura-2" />
+        <div className="sword-ring ring-1" />
+        <div className="sword-ring ring-2" />
+
         <div className="sword-glow" />
         <div className="sword">
           <span className="blade" />
+          <span className="blade-shine" />
           <span className="edge" />
           <span className="guard" />
           <span className="grip" />
@@ -582,7 +721,14 @@ export default function PortfolioPage() {
         {particleDots.map((dot, index) => (
           <span
             key={`${dot.left}-${dot.top}-${index}`}
+            ref={(el) => {
+              particleRefs.current[index] = el;
+            }}
             className="particle dynamic-particle"
+            data-dx={dot.dx}
+            data-dy={dot.dy}
+            data-leftpct={dot.leftPct}
+            data-toppct={dot.topPct}
             style={
               {
                 left: dot.left,
@@ -591,12 +737,7 @@ export default function PortfolioPage() {
                 height: `${dot.size}px`,
                 animationDelay: dot.delay,
                 animationDuration: dot.duration,
-                "--dx": dot.dx,
-                "--dy": dot.dy,
-                "--lift": dot.lift,
                 "--blur": `${dot.blur}px`,
-                "--scale-min": dot.scaleMin,
-                "--scale-max": dot.scaleMax,
                 "--opacity-base": dot.opacity,
               } as CSSVars
             }
@@ -623,24 +764,24 @@ export default function PortfolioPage() {
           <nav className="nav-shell" aria-label="Main">
             <button
               type="button"
-              className={`tab-btn ${panel === "none" ? "active" : ""}`}
-              onClick={() => setPanel("none")}
+              className={`tab-btn ${panel === "none" && !panelClosing ? "active" : ""}`}
+              onClick={closePanel}
             >
               Home
             </button>
             <button
               type="button"
-              className={`tab-btn ${panel === "showcase" ? "active" : ""}`}
-              onClick={() => setPanel("showcase")}
+              className={`tab-btn ${panel === "showcase" && !panelClosing ? "active" : ""}`}
+              onClick={() => openPanel("showcase")}
             >
               Showcase
             </button>
             <button
               type="button"
-              className={`tab-btn ${panel === "commission" ? "active" : ""}`}
-              onClick={() => setPanel("commission")}
+              className={`tab-btn ${panel === "commission" && !panelClosing ? "active" : ""}`}
+              onClick={() => openPanel("commission")}
             >
-              Commissions
+              Commission Me
             </button>
           </nav>
 
@@ -673,9 +814,7 @@ export default function PortfolioPage() {
             <span>Clean, simple, solid.</span>
           </h1>
 
-          <p className="hero-copy reveal delay-3">
-            I build full systems that are made to hold up in real games.
-          </p>
+          <p className="hero-copy reveal delay-3">I build full systems that are made to hold up in real games.</p>
 
           <div className="status-row reveal delay-3">
             <span className="status-pill">Commissions Open</span>
@@ -711,18 +850,18 @@ export default function PortfolioPage() {
           </div>
 
           <div className="cta-row reveal delay-3">
-            <button type="button" className="main-btn" onClick={() => setPanel("showcase")}>
+            <button type="button" className="main-btn" onClick={() => openPanel("showcase")}>
               View Showcase
               <ArrowUpRight className="mini" />
             </button>
-            <button type="button" className="ghost-btn" onClick={() => setPanel("commission")}>
-              Pricing
+            <button type="button" className="ghost-btn" onClick={() => openPanel("commission")}>
+              Commission Me
             </button>
           </div>
 
           <div className="skills reveal delay-3">
             {skills.map((skill) => (
-              <span key={skill.label} className="skill-pill">
+              <span key={skill.label} className={`skill-pill tone-${skill.tone}`}>
                 <span className={`skill-mark ${skill.tone}`}>{skill.mark}</span>
                 {skill.label}
               </span>
@@ -732,19 +871,19 @@ export default function PortfolioPage() {
       </div>
 
       {panel !== "none" && (
-        <div className="overlay" onClick={() => setPanel("none")}>
+        <div className={`overlay ${panelClosing ? "overlay-closing" : "overlay-open"}`} onClick={closePanel}>
           <section
-            className={`panel reveal ${panel === "showcase" ? "panel-showcase" : "panel-commission"}`}
+            className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} ${panelClosing ? "panel-closing" : "panel-opening"}`}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={panel === "showcase" ? "Showcase" : "Commission pricing"}
+            aria-label={panel === "showcase" ? "Showcase" : "Commission me"}
           >
             {panel === "showcase" ? (
               <>
                 <div className="panel-head">
-                  <h2>My Works</h2>
-                  <button type="button" className="close-btn" onClick={() => setPanel("none")} aria-label="Close">
+                  <h2>Showcase</h2>
+                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -764,34 +903,42 @@ export default function PortfolioPage() {
 
                 <div className="video-grid">
                   {filteredShowcases.length > 0 ? (
-                    filteredShowcases.map((item, index) => (
-                      <article key={item.embed} className={`video-card reveal delay-${(index % 3) + 1}`}>
-                        <div className="video-frame-wrap">
-                          <iframe
-                            title={item.title}
-                            src={item.embed}
-                            className="video-frame"
-                            allow="autoplay; fullscreen; picture-in-picture"
-                            allowFullScreen
-                            loading={index < 2 ? "eager" : "lazy"}
-                            referrerPolicy="strict-origin-when-cross-origin"
-                          />
-                        </div>
-                        <h3>{item.title}</h3>
-                        <p>{item.desc}</p>
+                    filteredShowcases.map((item, index) => {
+                      const key = `main-${item.embed}`;
+                      const isLoaded = !!loadedVideos[key];
 
-                        <div className="video-actions">
-                          <a
-                            href={getVideoUrl(item.embed)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="video-open-btn"
-                          >
-                            Open Video
-                          </a>
-                        </div>
-                      </article>
-                    ))
+                      return (
+                        <article key={item.embed} className={`video-card reveal delay-${(index % 3) + 1}`}>
+                          <div className={`video-frame-shell ${isLoaded ? "is-loaded" : ""}`}>
+                            <div className="video-skeleton">
+                              <span />
+                              <span />
+                              <span />
+                            </div>
+
+                            <iframe
+                              title={item.title}
+                              src={item.embed}
+                              className="video-frame"
+                              allow="autoplay; fullscreen; picture-in-picture"
+                              allowFullScreen
+                              loading={index < 3 ? "eager" : "lazy"}
+                              referrerPolicy="strict-origin-when-cross-origin"
+                              onLoad={() => markVideoLoaded(key)}
+                            />
+                          </div>
+
+                          <h3>{item.title}</h3>
+                          <p>{item.desc}</p>
+
+                          <div className="video-actions">
+                            <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
+                              Open Video
+                            </a>
+                          </div>
+                        </article>
+                      );
+                    })
                   ) : (
                     <div className="empty-card">
                       <h3>No matches</h3>
@@ -799,15 +946,63 @@ export default function PortfolioPage() {
                     </div>
                   )}
                 </div>
+
+                <section className="big-showcase-section">
+                  <div className="section-heading">
+                    <h3>BIG SHOWCASES</h3>
+                  </div>
+
+                  <div className="big-showcase-list">
+                    {bigShowcases.map((item, index) => {
+                      const key = `big-${item.embed}`;
+                      const isLoaded = !!loadedVideos[key];
+
+                      return (
+                        <article key={item.embed} className={`big-showcase-card reveal delay-${(index % 3) + 1}`}>
+                          <div className={`video-frame-shell big-shell ${isLoaded ? "is-loaded" : ""}`}>
+                            <div className="video-skeleton">
+                              <span />
+                              <span />
+                              <span />
+                            </div>
+
+                            <iframe
+                              title={item.title}
+                              src={item.embed}
+                              className="video-frame"
+                              allow="autoplay; fullscreen; picture-in-picture"
+                              allowFullScreen
+                              loading="eager"
+                              referrerPolicy="strict-origin-when-cross-origin"
+                              onLoad={() => markVideoLoaded(key)}
+                            />
+                          </div>
+
+                          <div className="big-showcase-copy">
+                            <h4>{item.title}</h4>
+                            <p>{item.credits}</p>
+                            <p className="big-bio">{item.bio}</p>
+
+                            <div className="video-actions">
+                              <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
+                                Open Video
+                              </a>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
               </>
             ) : (
               <>
                 <div className="panel-head">
                   <div>
                     <p className="eyebrow">Commission</p>
-                    <h2>Pricing</h2>
+                    <h2>Commission Me</h2>
                   </div>
-                  <button type="button" className="close-btn" onClick={() => setPanel("none")} aria-label="Close">
+                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -932,8 +1127,6 @@ export default function PortfolioPage() {
           color: #fff;
           --mx: 0;
           --my: 0;
-          --pmx: 0;
-          --pmy: 0;
           perspective: 1400px;
         }
 
@@ -1004,11 +1197,30 @@ export default function PortfolioPage() {
           animation-delay: 0.24s;
         }
 
-        .parallax {
-          transform: translate3d(calc(var(--mx) * 9px), calc(var(--my) * 7px), 0) scale(1.02);
+        .aurora-layer,
+        .grid-layer,
+        .network-layer,
+        .sword-layer {
           transform-origin: center;
-          transition: transform 90ms linear;
+          transition: transform 70ms linear;
           will-change: transform;
+        }
+
+        .aurora-layer {
+          transform: translate3d(calc(var(--mx) * 14px), calc(var(--my) * 10px), 0) scale(1.06);
+        }
+
+        .grid-layer {
+          transform: translate3d(calc(var(--mx) * 22px), calc(var(--my) * 16px), 0) scale(1.04);
+        }
+
+        .network-layer {
+          transform: translate3d(calc(var(--mx) * 30px), calc(var(--my) * 22px), 0) scale(1.05);
+        }
+
+        .sword-layer {
+          transform: translate3d(calc(var(--mx) * 26px), calc(var(--my) * 18px), 0)
+            rotate(calc(var(--mx) * 4deg));
         }
 
         .bg-aurora,
@@ -1026,12 +1238,15 @@ export default function PortfolioPage() {
             radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.05), transparent 24%),
             radial-gradient(circle at 22% 28%, rgba(255, 255, 255, 0.025), transparent 20%),
             radial-gradient(circle at 78% 24%, rgba(255, 255, 255, 0.02), transparent 18%);
-          animation: auroraShift 10s ease-in-out infinite alternate;
+          background-repeat: no-repeat;
+          background-size: 120% 120%, 110% 110%, 110% 110%;
+          animation: auroraDrift 12s ease-in-out infinite alternate;
         }
 
         .bg-grid {
           background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1.2px);
           background-size: 24px 24px;
+          background-position: calc(50% + var(--mx) * 8px) calc(50% + var(--my) * 8px);
           opacity: 0.18;
         }
 
@@ -1040,8 +1255,9 @@ export default function PortfolioPage() {
             linear-gradient(120deg, transparent 47%, rgba(255, 255, 255, 0.02) 48%, transparent 49%),
             linear-gradient(58deg, transparent 47%, rgba(255, 255, 255, 0.015) 48%, transparent 49%);
           background-size: 420px 420px, 380px 380px;
+          background-repeat: repeat;
           opacity: 0.08;
-          animation: networkShift 18s linear infinite;
+          animation: networkDrift 18s linear infinite;
         }
 
         .bg-sword-wrap {
@@ -1049,12 +1265,62 @@ export default function PortfolioPage() {
           place-items: center;
         }
 
+        .sword-aura,
+        .sword-ring,
         .sword-glow,
         .sword {
           position: absolute;
           left: 50%;
           top: 52%;
           transform: translate(-50%, -50%);
+        }
+
+        .sword-aura {
+          width: 120px;
+          height: 860px;
+          border-radius: 999px;
+          filter: blur(42px);
+          opacity: 0.26;
+          mix-blend-mode: screen;
+        }
+
+        .aura-1 {
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.06),
+            rgba(129, 140, 248, 0.18),
+            rgba(255, 255, 255, 0.03)
+          );
+          animation: animeAuraOne 3.8s ease-in-out infinite;
+        }
+
+        .aura-2 {
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.04),
+            rgba(244, 114, 182, 0.12),
+            rgba(255, 255, 255, 0.02)
+          );
+          animation: animeAuraTwo 4.6s ease-in-out infinite;
+        }
+
+        .sword-ring {
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          opacity: 0.22;
+          filter: blur(0.2px);
+        }
+
+        .ring-1 {
+          width: 240px;
+          height: 900px;
+          animation: animeRingOne 3.6s ease-in-out infinite;
+        }
+
+        .ring-2 {
+          width: 180px;
+          height: 780px;
+          animation: animeRingTwo 3.2s ease-in-out infinite;
         }
 
         .sword-glow {
@@ -1064,22 +1330,23 @@ export default function PortfolioPage() {
           background: linear-gradient(
             180deg,
             rgba(255, 255, 255, 0.05),
-            rgba(255, 255, 255, 0.22),
+            rgba(255, 255, 255, 0.24),
             rgba(255, 255, 255, 0.05)
           );
           filter: blur(58px);
-          opacity: 0.8;
-          animation: swordFloat 6.2s ease-in-out infinite;
+          opacity: 0.82;
+          animation: swordGlowPulse 2.8s ease-in-out infinite;
         }
 
         .sword {
           width: 240px;
           height: 860px;
-          opacity: 0.34;
-          animation: swordFloat 6.2s ease-in-out infinite;
+          opacity: 0.36;
+          animation: animeSwordFloat 4.8s cubic-bezier(0.45, 0.04, 0.2, 0.98) infinite;
         }
 
         .blade,
+        .blade-shine,
         .edge,
         .guard,
         .grip,
@@ -1102,6 +1369,21 @@ export default function PortfolioPage() {
             rgba(20, 20, 20, 0.72)
           );
           box-shadow: 0 0 34px rgba(255, 255, 255, 0.16);
+        }
+
+        .blade-shine {
+          top: 28px;
+          width: 7px;
+          height: 500px;
+          border-radius: 999px;
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0),
+            rgba(255, 255, 255, 0.92),
+            rgba(255, 255, 255, 0)
+          );
+          filter: blur(0.6px);
+          animation: bladeFlash 2.4s ease-in-out infinite;
         }
 
         .edge {
@@ -1159,13 +1441,7 @@ export default function PortfolioPage() {
             0 0 22px rgba(255, 255, 255, 0.08);
           filter: blur(var(--blur));
           mix-blend-mode: screen;
-          transform: translate3d(
-              calc(var(--pmx) * var(--dx) * 1px),
-              calc(var(--pmy) * var(--dy) * 1px),
-              0
-            )
-            scale(var(--scale-min));
-          animation-name: twinkleFloat;
+          animation-name: twinklePulse;
           animation-timing-function: ease-in-out;
           animation-iteration-count: infinite;
           will-change: transform, opacity;
@@ -1180,11 +1456,12 @@ export default function PortfolioPage() {
           display: flex;
           justify-content: center;
           pointer-events: none;
+          padding-top: env(safe-area-inset-top, 0px);
         }
 
         .top-center {
           pointer-events: auto;
-          width: min(1120px, calc(100% - 24px));
+          width: min(1120px, calc(100% - 18px));
           margin: 0 auto;
           display: grid;
           justify-items: center;
@@ -1206,6 +1483,8 @@ export default function PortfolioPage() {
           padding: 7px;
           border-radius: 999px;
           margin: 0 auto;
+          flex-wrap: wrap;
+          justify-content: center;
         }
 
         .tab-btn {
@@ -1217,6 +1496,7 @@ export default function PortfolioPage() {
           color: rgba(255, 255, 255, 0.68);
           font-weight: 750;
           transition: transform 0.22s ease, background 0.22s ease, color 0.22s ease;
+          white-space: nowrap;
         }
 
         .tab-btn:hover,
@@ -1230,6 +1510,7 @@ export default function PortfolioPage() {
           display: grid;
           justify-items: center;
           gap: 8px;
+          max-width: 100%;
         }
 
         .avatar {
@@ -1459,6 +1740,32 @@ export default function PortfolioPage() {
           font-size: 12px;
           font-weight: 820;
           color: #f5f5f5;
+          border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .skill-pill.tone-lua {
+          background: rgba(59, 130, 246, 0.14);
+          border-color: rgba(59, 130, 246, 0.28);
+        }
+
+        .skill-pill.tone-js {
+          background: rgba(234, 179, 8, 0.14);
+          border-color: rgba(234, 179, 8, 0.28);
+        }
+
+        .skill-pill.tone-cpp {
+          background: rgba(147, 51, 234, 0.14);
+          border-color: rgba(147, 51, 234, 0.28);
+        }
+
+        .skill-pill.tone-cs {
+          background: rgba(16, 185, 129, 0.14);
+          border-color: rgba(16, 185, 129, 0.28);
+        }
+
+        .skill-pill.tone-py {
+          background: rgba(249, 115, 22, 0.14);
+          border-color: rgba(249, 115, 22, 0.28);
         }
 
         .skill-mark {
@@ -1476,23 +1783,24 @@ export default function PortfolioPage() {
         }
 
         .skill-mark.lua {
-          background: #3f3f46;
+          background: linear-gradient(135deg, #2563eb, #60a5fa);
         }
 
         .skill-mark.js {
-          background: #52525b;
+          background: linear-gradient(135deg, #ca8a04, #fde047);
+          color: #111;
         }
 
         .skill-mark.cpp {
-          background: #71717a;
+          background: linear-gradient(135deg, #7c3aed, #c084fc);
         }
 
         .skill-mark.cs {
-          background: #3f3f46;
+          background: linear-gradient(135deg, #059669, #34d399);
         }
 
         .skill-mark.py {
-          background: #52525b;
+          background: linear-gradient(135deg, #ea580c, #fb923c);
         }
 
         .main-btn,
@@ -1549,9 +1857,17 @@ export default function PortfolioPage() {
           -webkit-backdrop-filter: blur(16px);
         }
 
+        .overlay-open {
+          animation: overlayIn 0.22s ease both;
+        }
+
+        .overlay-closing {
+          animation: overlayOut 0.22s ease both;
+        }
+
         .panel {
           width: min(1120px, 100%);
-          max-height: min(84vh, 860px);
+          max-height: min(88dvh, 920px);
           overflow: auto;
           border-radius: 30px;
           padding: 24px;
@@ -1563,6 +1879,14 @@ export default function PortfolioPage() {
 
         .panel-commission {
           background: rgba(8, 8, 8, 0.96);
+        }
+
+        .panel-opening {
+          animation: panelIn 0.24s ease both;
+        }
+
+        .panel-closing {
+          animation: panelOut 0.22s ease both;
         }
 
         .panel-head {
@@ -1599,6 +1923,7 @@ export default function PortfolioPage() {
           background: rgba(255, 255, 255, 0.06);
           color: rgba(255, 255, 255, 0.8);
           transition: transform 0.22s ease, background 0.22s ease;
+          flex-shrink: 0;
         }
 
         .close-btn:hover {
@@ -1613,6 +1938,8 @@ export default function PortfolioPage() {
 
         .search-shell {
           min-width: min(340px, 100%);
+          width: 100%;
+          max-width: 440px;
           display: flex;
           align-items: center;
           gap: 10px;
@@ -1644,6 +1971,7 @@ export default function PortfolioPage() {
 
         .search-icon {
           color: rgba(255, 255, 255, 0.4);
+          flex-shrink: 0;
         }
 
         .video-grid {
@@ -1656,7 +1984,8 @@ export default function PortfolioPage() {
         .tier-card,
         .info-card,
         .policy-card,
-        .empty-card {
+        .empty-card,
+        .big-showcase-card {
           border-radius: 24px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.04);
@@ -1665,32 +1994,87 @@ export default function PortfolioPage() {
         }
 
         .video-card:hover,
-        .tier-card:hover {
+        .tier-card:hover,
+        .big-showcase-card:hover {
           transform: translateY(-2px);
           border-color: rgba(255, 255, 255, 0.14);
           background: rgba(255, 255, 255, 0.05);
         }
 
-        .video-frame-wrap {
+        .video-frame-shell {
+          position: relative;
           overflow: hidden;
           border-radius: 18px;
           border: 1px solid rgba(255, 255, 255, 0.08);
           background: #050505;
         }
 
+        .big-shell {
+          min-height: 100%;
+        }
+
+        .video-skeleton {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          background:
+            linear-gradient(90deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+          background-size: 220% 100%;
+          animation: shimmer 1.1s linear infinite;
+          z-index: 1;
+          transition: opacity 0.25s ease;
+        }
+
+        .video-skeleton span {
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.9);
+          opacity: 0.32;
+          animation: loaderPulse 0.85s ease-in-out infinite;
+        }
+
+        .video-skeleton span:nth-child(2) {
+          animation-delay: 0.12s;
+        }
+
+        .video-skeleton span:nth-child(3) {
+          animation-delay: 0.24s;
+        }
+
+        .video-frame-shell.is-loaded .video-skeleton {
+          opacity: 0;
+          pointer-events: none;
+        }
+
         .video-frame {
           display: block;
           width: 100%;
-          height: 220px;
+          aspect-ratio: 16 / 9;
+          height: auto;
           border: 0;
           background: #050505;
+          opacity: 0;
+          transform: scale(1.01);
+          transition: opacity 0.35s ease, transform 0.35s ease;
+          position: relative;
+          z-index: 2;
+        }
+
+        .video-frame-shell.is-loaded .video-frame {
+          opacity: 1;
+          transform: scale(1);
         }
 
         .video-card h3,
         .tier-card h3,
         .info-card h3,
         .policy-card h4,
-        .empty-card h3 {
+        .empty-card h3,
+        .big-showcase-card h4 {
           margin: 14px 0 0;
           font-size: 18px;
           font-weight: 900;
@@ -1700,7 +2084,8 @@ export default function PortfolioPage() {
         .tier-card p,
         .info-card li,
         .policy-card p,
-        .empty-card p {
+        .empty-card p,
+        .big-showcase-card p {
           margin: 8px 0 0;
           line-height: 1.65;
           color: rgba(255, 255, 255, 0.58);
@@ -1710,12 +2095,51 @@ export default function PortfolioPage() {
           margin-top: 12px;
           display: flex;
           justify-content: flex-start;
+          flex-wrap: wrap;
+          gap: 10px;
         }
 
         .empty-card {
           grid-column: 1 / -1;
           text-align: center;
           padding: 28px 18px;
+        }
+
+        .big-showcase-section {
+          margin-top: 22px;
+        }
+
+        .section-heading {
+          margin-bottom: 14px;
+        }
+
+        .section-heading h3 {
+          margin: 0;
+          font-size: clamp(22px, 4vw, 34px);
+          font-weight: 900;
+          letter-spacing: -0.03em;
+        }
+
+        .big-showcase-list {
+          display: grid;
+          gap: 14px;
+        }
+
+        .big-showcase-card {
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+          gap: 16px;
+          align-items: stretch;
+        }
+
+        .big-showcase-copy {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+        }
+
+        .big-bio {
+          color: rgba(255, 255, 255, 0.72) !important;
         }
 
         .pricing-list {
@@ -1831,6 +2255,46 @@ export default function PortfolioPage() {
           }
         }
 
+        @keyframes overlayIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        @keyframes overlayOut {
+          from {
+            opacity: 1;
+          }
+          to {
+            opacity: 0;
+          }
+        }
+
+        @keyframes panelIn {
+          from {
+            opacity: 0;
+            transform: translateY(12px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes panelOut {
+          from {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+          to {
+            opacity: 0;
+            transform: translateY(10px) scale(0.987);
+          }
+        }
+
         @keyframes loaderPulse {
           0%,
           100% {
@@ -1843,60 +2307,144 @@ export default function PortfolioPage() {
           }
         }
 
-        @keyframes auroraShift {
+        @keyframes shimmer {
           0% {
-            transform: translate3d(0, 0, 0) scale(1);
+            background-position: 200% 0;
           }
           100% {
-            transform: translate3d(-2%, 1%, 0) scale(1.03);
+            background-position: -200% 0;
           }
         }
 
-        @keyframes networkShift {
+        @keyframes auroraDrift {
           0% {
-            transform: translate3d(0, 0, 0);
+            background-position:
+              50% 14%,
+              22% 28%,
+              78% 24%;
           }
           100% {
-            transform: translate3d(-56px, 34px, 0);
+            background-position:
+              53% 18%,
+              18% 34%,
+              82% 20%;
           }
         }
 
-        @keyframes swordFloat {
+        @keyframes networkDrift {
+          0% {
+            background-position:
+              0 0,
+              0 0;
+          }
+          100% {
+            background-position:
+              -56px 34px,
+              34px -22px;
+          }
+        }
+
+        @keyframes animeSwordFloat {
           0%,
           100% {
-            transform: translate(-50%, -50%) rotate(-9deg);
+            transform: translate(-50%, -50%) rotate(-10deg) scale(1);
+          }
+          20% {
+            transform: translate(-49.3%, -53.4%) rotate(-5.5deg) scale(1.01);
           }
           50% {
-            transform: translate(-50%, -54%) rotate(-5deg);
+            transform: translate(-50.7%, -54.2%) rotate(-7.2deg) scale(1.015);
+          }
+          78% {
+            transform: translate(-49.4%, -51.8%) rotate(-4.2deg) scale(1.008);
           }
         }
 
-        @keyframes twinkleFloat {
+        @keyframes swordGlowPulse {
           0%,
           100% {
-            opacity: calc(var(--opacity-base) * 0.5);
-            transform: translate3d(
-                calc(var(--pmx) * var(--dx) * 1px),
-                calc(var(--pmy) * var(--dy) * 1px),
-                0
-              )
-              scale(var(--scale-min));
+            transform: translate(-50%, -50%) scaleY(1) scaleX(1);
+            opacity: 0.72;
+          }
+          50% {
+            transform: translate(-50%, -50%) scaleY(1.08) scaleX(1.14);
+            opacity: 0.9;
+          }
+        }
+
+        @keyframes animeAuraOne {
+          0%,
+          100% {
+            transform: translate(-50%, -50%) rotate(-12deg) scale(0.9);
+            opacity: 0.18;
+          }
+          50% {
+            transform: translate(-50%, -50%) rotate(-4deg) scale(1.08);
+            opacity: 0.3;
+          }
+        }
+
+        @keyframes animeAuraTwo {
+          0%,
+          100% {
+            transform: translate(-50%, -50%) rotate(6deg) scale(0.92);
+            opacity: 0.14;
+          }
+          50% {
+            transform: translate(-50%, -50%) rotate(-2deg) scale(1.05);
+            opacity: 0.24;
+          }
+        }
+
+        @keyframes animeRingOne {
+          0%,
+          100% {
+            transform: translate(-50%, -50%) rotate(-10deg) scale(0.94);
+            opacity: 0.12;
+          }
+          50% {
+            transform: translate(-50%, -50%) rotate(2deg) scale(1.04);
+            opacity: 0.24;
+          }
+        }
+
+        @keyframes animeRingTwo {
+          0%,
+          100% {
+            transform: translate(-50%, -50%) rotate(8deg) scale(0.96);
+            opacity: 0.1;
+          }
+          50% {
+            transform: translate(-50%, -50%) rotate(-6deg) scale(1.02);
+            opacity: 0.2;
+          }
+        }
+
+        @keyframes bladeFlash {
+          0%,
+          100% {
+            opacity: 0.24;
+            transform: translateX(-50%) translateY(0);
+          }
+          50% {
+            opacity: 0.95;
+            transform: translateX(-50%) translateY(-16px);
+          }
+        }
+
+        @keyframes twinklePulse {
+          0%,
+          100% {
+            opacity: calc(var(--opacity-base) * 0.52);
             box-shadow:
-              0 0 10px rgba(255, 255, 255, 0.2),
-              0 0 18px rgba(255, 255, 255, 0.06);
+              0 0 8px rgba(255, 255, 255, 0.16),
+              0 0 14px rgba(255, 255, 255, 0.04);
           }
           50% {
             opacity: var(--opacity-base);
-            transform: translate3d(
-                calc(var(--pmx) * var(--dx) * 1px),
-                calc(var(--pmy) * var(--dy) * 1px),
-                0
-              )
-              translateY(calc(var(--lift) * -1px))
-              scale(var(--scale-max));
             box-shadow:
-              0 0 16px rgba(255, 255, 255, 0.34),
-              0 0 26px rgba(255, 255, 255, 0.1);
+              0 0 14px rgba(255, 255, 255, 0.3),
+              0 0 24px rgba(255, 255, 255, 0.1);
           }
         }
 
@@ -1913,19 +2461,24 @@ export default function PortfolioPage() {
         @media (max-width: 980px) {
           .video-grid,
           .commission-grid,
-          .policy-grid {
+          .policy-grid,
+          .big-showcase-card {
             grid-template-columns: 1fr;
           }
 
-          .video-frame {
-            height: 240px;
+          .big-showcase-card {
+            gap: 14px;
           }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 760px) {
+          .top-stack {
+            top: 8px;
+          }
+
           .wrap {
             width: min(100%, calc(100% - 16px));
-            padding: 196px 0 120px;
+            padding: 200px 0 100px;
           }
 
           .hero-title {
@@ -1939,11 +2492,15 @@ export default function PortfolioPage() {
           .nav-shell {
             gap: 6px;
             padding: 6px;
+            border-radius: 22px;
+            width: 100%;
           }
 
           .tab-btn {
-            padding: 9px 13px;
-            font-size: 13px;
+            flex: 1 1 auto;
+            min-width: 0;
+            padding: 10px 12px;
+            font-size: 12px;
           }
 
           .avatar {
@@ -1951,17 +2508,120 @@ export default function PortfolioPage() {
             height: 52px;
           }
 
+          .overlay {
+            padding: 12px;
+            place-items: start center;
+            overflow-y: auto;
+          }
+
           .panel {
-            padding: 18px;
+            width: 100%;
+            max-height: none;
+            min-height: calc(100dvh - 24px);
             border-radius: 24px;
+            padding: 18px;
+          }
+
+          .panel-head {
+            align-items: flex-start;
+          }
+
+          .toolbar-row {
+            justify-content: stretch;
           }
 
           .search-shell {
             min-width: 100%;
+            max-width: 100%;
           }
 
-          .discord-callout {
+          .discord-callout,
+          .status-row,
+          .stat-row,
+          .cta-row,
+          .skills,
+          .contact-actions {
             width: 100%;
+          }
+
+          .status-pill,
+          .stat-pill,
+          .skill-pill,
+          .main-btn,
+          .ghost-btn,
+          .commission-cta,
+          .commission-ghost,
+          .discord-callout-btn,
+          .video-open-btn {
+            width: 100%;
+          }
+
+          .contact-actions > * {
+            flex: 1 1 100%;
+          }
+
+          .video-card,
+          .tier-card,
+          .info-card,
+          .policy-card,
+          .empty-card,
+          .big-showcase-card {
+            border-radius: 20px;
+            padding: 14px;
+          }
+
+          .video-actions {
+            justify-content: stretch;
+          }
+
+          .video-actions > * {
+            flex: 1 1 100%;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .top-center {
+            width: min(100%, calc(100% - 12px));
+          }
+
+          .wrap {
+            padding: 194px 0 90px;
+          }
+
+          .intro {
+            font-size: 13px;
+          }
+
+          .hero-copy {
+            max-width: 100%;
+          }
+
+          .page-loader-card {
+            padding: 12px 14px;
+          }
+
+          .page-loader-text {
+            font-size: 13px;
+          }
+
+          .panel-head h2 {
+            font-size: clamp(24px, 9vw, 34px);
+          }
+
+          .section-heading h3 {
+            font-size: clamp(20px, 8vw, 28px);
+          }
+
+          .info-card ul {
+            padding-left: 16px;
+          }
+
+          .sword-aura,
+          .sword-ring,
+          .sword-glow,
+          .sword {
+            transform-origin: center;
+            scale: 0.88;
           }
         }
 
@@ -1975,8 +2635,12 @@ export default function PortfolioPage() {
             scroll-behavior: auto !important;
           }
 
-          .parallax,
-          .dynamic-particle {
+          .aurora-layer,
+          .grid-layer,
+          .network-layer,
+          .sword-layer,
+          .dynamic-particle,
+          .video-frame {
             transform: none !important;
           }
         }
