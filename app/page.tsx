@@ -287,28 +287,38 @@ export default function PortfolioPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const links: HTMLLinkElement[] = [];
-    const entries = [
-      { rel: "preconnect", href: "https://streamable.com", crossOrigin: "" },
-      { rel: "dns-prefetch", href: "https://streamable.com" },
-    ];
+useEffect(() => {
+  const links: HTMLLinkElement[] = [];
+  const entries: Array<{
+    rel: string;
+    href: string;
+    crossOrigin?: string | null;
+  }> = [
+    { rel: "preconnect", href: "https://streamable.com", crossOrigin: "" },
+    { rel: "dns-prefetch", href: "https://streamable.com" },
+  ];
 
-    for (const entry of entries) {
-      const link = document.createElement("link");
-      link.rel = entry.rel;
-      link.href = entry.href;
-      if ("crossOrigin" in entry) link.crossOrigin = entry.crossOrigin;
-      document.head.appendChild(link);
-      links.push(link);
+  for (const entry of entries) {
+    const link = document.createElement("link");
+    link.rel = entry.rel;
+    link.href = entry.href;
+
+    if (entry.crossOrigin != null) {
+      link.crossOrigin = entry.crossOrigin;
     }
 
-    return () => {
-      for (const link of links) {
-        if (link.parentNode) link.parentNode.removeChild(link);
+    document.head.appendChild(link);
+    links.push(link);
+  }
+
+  return () => {
+    for (const link of links) {
+      if (link.parentNode) {
+        link.parentNode.removeChild(link);
       }
-    };
-  }, []);
+    }
+  };
+}, []);
 
   useEffect(() => {
     const el = shellRef.current;
