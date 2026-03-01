@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 type Panel = "none" | "showcase" | "commission";
+type NavTab = "home" | "showcase" | "commission";
 type DiscordPresence = "online" | "idle" | "dnd" | "offline";
 
 type ShowcaseItem = {
@@ -71,10 +72,11 @@ type CSSVars = CSSProperties & {
 const DISCORD_USER_ID = "1404955716887904266";
 const DISCORD_STATUS_ENABLED = /^\d{8,25}$/.test(DISCORD_USER_ID);
 const DISCORD_POLL_MS = 30000;
+
 const INITIAL_BOOT_MS = 900;
+const PANEL_EXIT_MS = 240;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
 const BG_MUSIC_VOLUME = 0.18;
-const PANEL_EXIT_MS = 240;
 const EMAIL_ADDRESS = "liamj7872@gmail.com";
 const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
 
@@ -123,27 +125,27 @@ const bigShowcases: BigShowcaseItem[] = [
     title: "DYNAMIC MOVEMENT SYSTEM",
     embed: "https://streamable.com/e/8nqqaa?autoplay=0&loop=0",
     credits: "Credits: SkaterStudios ( HELPED ) & nvrliam ( ME )",
-    bio: "Join Discord!",
+    bio: "Premium movement polish built to stay smooth, responsive, and stable in real gameplay.",
   },
 ];
 
 const prices: PriceTier[] = [
-  { title: "Quick Fixes", usd: "$5–$15", robux: "1.4k–4.3k R$", note: "Small fixes and tweaks.", icon: "fix" },
+  { title: "Quick Fixes", usd: "$5–$15", robux: "1.4k–4.3k R$", note: "Small fixes and targeted tweaks.", icon: "fix" },
   { title: "Mini Scripts", usd: "$15–$35", robux: "4.3k–10k R$", note: "Small drop-in features.", icon: "mini" },
   { title: "Gameplay Features", usd: "$35–$80", robux: "10k–23k R$", note: "Mid-size systems.", icon: "play" },
   { title: "Full Systems", usd: "$80–$180", robux: "23k–51k R$", note: "Bigger polished systems.", icon: "full" },
   { title: "Full Game", usd: "$250+", robux: "71k+ R$", note: "Quote depends on scope.", icon: "game" },
 ];
 
-function createParticleDots(count = 64): ParticleDot[] {
+function createParticleDots(count = 84): ParticleDot[] {
   return Array.from({ length: count }, (_, i) => {
     const leftPct = 1 + ((i * 17) % 98);
     const topPct = 2 + ((i * 23) % 94);
     const size = 2 + (i % 5);
-    const opacity = Math.min(0.2 + (i % 7) * 0.09, 0.9);
+    const opacity = Math.min(0.22 + (i % 7) * 0.09, 0.9);
     const dx = Number((((i % 11) - 5) * (0.55 + (i % 3) * 0.18)).toFixed(2));
     const dy = Number((((((i + 4) % 11) - 5) || 1) * (0.5 + (i % 4) * 0.16)).toFixed(2));
-    const blur = Math.max(0, (size - 2) * 0.4);
+    const blur = Math.max(0, (size - 2) * 0.45);
     const phase = Number((i * 0.37).toFixed(3));
 
     return {
@@ -154,7 +156,7 @@ function createParticleDots(count = 64): ParticleDot[] {
       size,
       opacity,
       delay: `${(i % 12) * 0.18}s`,
-      duration: `${4.8 + (i % 9) * 0.7}s`,
+      duration: `${4.6 + (i % 9) * 0.7}s`,
       dx,
       dy,
       blur,
@@ -187,6 +189,37 @@ function preloadImage(src: string) {
     img.onload = () => resolve();
     img.onerror = () => resolve();
     img.src = src;
+  });
+}
+
+function preloadAudio(src: string) {
+  return new Promise<void>((resolve) => {
+    const audio = document.createElement("audio");
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve();
+    };
+
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      audio.removeEventListener("canplaythrough", finish);
+      audio.removeEventListener("loadeddata", finish);
+      audio.removeEventListener("error", finish);
+      audio.src = "";
+    };
+
+    const timeoutId = window.setTimeout(finish, 1400);
+
+    audio.preload = "auto";
+    audio.addEventListener("canplaythrough", finish, { once: true });
+    audio.addEventListener("loadeddata", finish, { once: true });
+    audio.addEventListener("error", finish, { once: true });
+    audio.src = src;
+    audio.load();
   });
 }
 
@@ -231,7 +264,9 @@ function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
 
 export default function PortfolioPage() {
   const [panel, setPanel] = useState<Panel>("none");
+  const [activeTab, setActiveTab] = useState<NavTab>("home");
   const [panelClosing, setPanelClosing] = useState(false);
+  const [panelRenderKey, setPanelRenderKey] = useState(0);
   const [query, setQuery] = useState("");
   const [emailCopied, setEmailCopied] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
@@ -250,7 +285,18 @@ export default function PortfolioPage() {
   const fadeFrameRef = useRef<number | null>(null);
   const panelCloseTimerRef = useRef<number | null>(null);
 
-  const particleDots = useMemo(() => createParticleDots(), []);
+  const particleDots = useMemo(() => createParticleDots(84), []);
+
+  const preloadTargets = useMemo(() => {
+    const values = [
+      ...showcases.slice(0, 5).map((item) => item.embed),
+      ...showcases.slice(0, 5).map((item) => getVideoUrl(item.embed)),
+      ...bigShowcases.map((item) => item.embed),
+      ...bigShowcases.map((item) => getVideoUrl(item.embed)),
+    ];
+
+    return Array.from(new Set(values));
+  }, []);
 
   const openPanel = useCallback((next: Exclude<Panel, "none">) => {
     if (panelCloseTimerRef.current !== null) {
@@ -258,18 +304,25 @@ export default function PortfolioPage() {
       panelCloseTimerRef.current = null;
     }
 
+    setActiveTab(next);
     setPanelClosing(false);
     setPanel(next);
+    setPanelRenderKey((prev) => prev + 1);
   }, []);
 
-  const closePanel = useCallback(() => {
-    if (panel === "none" || panelClosing) return;
-
-    setPanelClosing(true);
-
+  const showHome = useCallback(() => {
     if (panelCloseTimerRef.current !== null) {
       window.clearTimeout(panelCloseTimerRef.current);
+      panelCloseTimerRef.current = null;
     }
+
+    setActiveTab("home");
+
+    if (panel === "none" || panelClosing) {
+      return;
+    }
+
+    setPanelClosing(true);
 
     panelCloseTimerRef.current = window.setTimeout(() => {
       setPanel("none");
@@ -343,13 +396,16 @@ export default function PortfolioPage() {
         waitForFonts(),
         preloadImage("/profile.png"),
         preloadImage("/logo.png"),
+        preloadAudio(BG_MUSIC_SRC),
         sleep(INITIAL_BOOT_MS),
       ]);
 
       if (!active) return;
 
       window.requestAnimationFrame(() => {
-        if (active) setPageReady(true);
+        window.requestAnimationFrame(() => {
+          if (active) setPageReady(true);
+        });
       });
     };
 
@@ -362,26 +418,36 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     const links: HTMLLinkElement[] = [];
-    const entries: Array<{
+
+    const addLink = (props: {
       rel: string;
       href: string;
-      crossOrigin?: string | null;
-    }> = [
-      { rel: "preconnect", href: "https://streamable.com", crossOrigin: "" },
-      { rel: "dns-prefetch", href: "https://streamable.com" },
-    ];
-
-    for (const entry of entries) {
+      as?: string;
+      crossOrigin?: string;
+    }) => {
       const link = document.createElement("link");
-      link.rel = entry.rel;
-      link.href = entry.href;
+      link.rel = props.rel;
+      link.href = props.href;
 
-      if (entry.crossOrigin != null) {
-        link.crossOrigin = entry.crossOrigin;
-      }
+      if (props.as) link.as = props.as;
+      if (props.crossOrigin !== undefined) link.crossOrigin = props.crossOrigin;
 
       document.head.appendChild(link);
       links.push(link);
+    };
+
+    addLink({ rel: "preconnect", href: "https://streamable.com", crossOrigin: "anonymous" });
+    addLink({ rel: "preconnect", href: "https://api.lanyard.rest", crossOrigin: "anonymous" });
+    addLink({ rel: "preconnect", href: "https://discord.gg", crossOrigin: "anonymous" });
+    addLink({ rel: "preconnect", href: "https://discord.com", crossOrigin: "anonymous" });
+    addLink({ rel: "dns-prefetch", href: "https://streamable.com" });
+    addLink({ rel: "dns-prefetch", href: "https://api.lanyard.rest" });
+    addLink({ rel: "preload", href: "/profile.png", as: "image" });
+    addLink({ rel: "preload", href: "/logo.png", as: "image" });
+    addLink({ rel: "preload", href: BG_MUSIC_SRC, as: "audio" });
+
+    for (const href of preloadTargets) {
+      addLink({ rel: "prefetch", href });
     }
 
     return () => {
@@ -391,18 +457,16 @@ export default function PortfolioPage() {
         }
       }
     };
-  }, []);
+  }, [preloadTargets]);
 
   useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) {
-      el.style.setProperty("--mx", "0");
-      el.style.setProperty("--my", "0");
-      return;
-    }
+    const motionFactor = reduceMotion ? 0.32 : 1;
+    const particleFactor = reduceMotion ? 0.32 : 1;
+    const easeFactor = reduceMotion ? 0.055 : 0.095;
 
     const state = {
       targetX: 0,
@@ -427,16 +491,46 @@ export default function PortfolioPage() {
       state.height = Math.max(rect.height, 1);
     };
 
-    const frame = (now: number) => {
-      state.currentX += (state.targetX - state.currentX) * 0.08;
-      state.currentY += (state.targetY - state.currentY) * 0.08;
+    const setCursorVars = (xPercent: number, yPercent: number) => {
+      el.style.setProperty("--cx", `${xPercent.toFixed(2)}%`);
+      el.style.setProperty("--cy", `${yPercent.toFixed(2)}%`);
+    };
 
-      el.style.setProperty("--mx", state.currentX.toFixed(4));
-      el.style.setProperty("--my", state.currentY.toFixed(4));
+    const syncFromClientPoint = (clientX: number, clientY: number) => {
+      updateRect();
+
+      const localX = clamp(clientX - state.left, 0, state.width);
+      const localY = clamp(clientY - state.top, 0, state.height);
+
+      state.targetX = (localX / state.width - 0.5) * 2;
+      state.targetY = (localY / state.height - 0.5) * 2;
+      state.cursorX = localX;
+      state.cursorY = localY;
+      state.cursorActive = true;
+
+      setCursorVars((localX / state.width) * 100, (localY / state.height) * 100);
+    };
+
+    const resetMotion = () => {
+      state.targetX = 0;
+      state.targetY = 0;
+      state.cursorActive = false;
+      setCursorVars(50, 34);
+    };
+
+    const frame = (now: number) => {
+      state.currentX += (state.targetX - state.currentX) * easeFactor;
+      state.currentY += (state.targetY - state.currentY) * easeFactor;
+
+      const renderX = state.currentX * motionFactor;
+      const renderY = state.currentY * motionFactor;
+
+      el.style.setProperty("--mx", renderX.toFixed(4));
+      el.style.setProperty("--my", renderY.toFixed(4));
 
       const t = now * 0.001;
-      const repelRadius = Math.min(170, Math.max(95, state.width * 0.13));
-      const repelStrength = 34;
+      const repelRadius = Math.min(190, Math.max(120, state.width * 0.15));
+      const repelStrength = reduceMotion ? 12 : 42;
 
       for (const node of particleRefs.current) {
         if (!node) continue;
@@ -451,11 +545,11 @@ export default function PortfolioPage() {
         const dotX = (leftPct / 100) * state.width;
         const dotY = (topPct / 100) * state.height;
 
-        const driftX = state.currentX * 14 * baseDx;
-        const driftY = state.currentY * 14 * baseDy;
+        const driftX = renderX * 20 * baseDx;
+        const driftY = renderY * 20 * baseDy;
 
-        const ambientX = Math.sin(t * (0.45 + size * 0.02) + phase) * (2.8 + size * 0.6);
-        const ambientY = Math.cos(t * (0.6 + size * 0.025) + phase) * (2.4 + size * 0.55);
+        const ambientX = Math.sin(t * (0.46 + size * 0.022) + phase) * (2.9 + size * 0.62) * particleFactor;
+        const ambientY = Math.cos(t * (0.61 + size * 0.026) + phase) * (2.5 + size * 0.58) * particleFactor;
 
         let repelX = 0;
         let repelY = 0;
@@ -478,38 +572,63 @@ export default function PortfolioPage() {
       state.raf = window.requestAnimationFrame(frame);
     };
 
-    const onPointerMove = (e: PointerEvent) => {
-      updateRect();
+    const supportsPointer = "PointerEvent" in window;
 
-      const localX = clamp(e.clientX - state.left, 0, state.width);
-      const localY = clamp(e.clientY - state.top, 0, state.height);
-
-      state.targetX = (localX / state.width - 0.5) * 2;
-      state.targetY = (localY / state.height - 0.5) * 2;
-      state.cursorX = localX;
-      state.cursorY = localY;
-      state.cursorActive = true;
+    const handlePointerMove: EventListener = (event) => {
+      const e = event as PointerEvent;
+      syncFromClientPoint(e.clientX, e.clientY);
     };
 
-    const onPointerLeave = () => {
-      state.targetX = 0;
-      state.targetY = 0;
-      state.cursorActive = false;
+    const handleMouseMove: EventListener = (event) => {
+      const e = event as MouseEvent;
+      syncFromClientPoint(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove: EventListener = (event) => {
+      const e = event as TouchEvent;
+      const touch = e.touches[0];
+      if (!touch) return;
+      syncFromClientPoint(touch.clientX, touch.clientY);
+    };
+
+    const handleReset: EventListener = () => {
+      resetMotion();
+    };
+
+    const handleResizeOrScroll: EventListener = () => {
+      updateRect();
     };
 
     updateRect();
+    setCursorVars(50, 34);
     state.raf = window.requestAnimationFrame(frame);
 
-    el.addEventListener("pointermove", onPointerMove, { passive: true });
-    el.addEventListener("pointerleave", onPointerLeave);
-    window.addEventListener("resize", updateRect);
-    window.addEventListener("scroll", updateRect, { passive: true });
+    if (supportsPointer) {
+      window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    } else {
+      window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    }
+
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleReset, { passive: true });
+    window.addEventListener("touchcancel", handleReset, { passive: true });
+    window.addEventListener("blur", handleReset);
+    window.addEventListener("resize", handleResizeOrScroll);
+    window.addEventListener("scroll", handleResizeOrScroll, { passive: true });
 
     return () => {
-      el.removeEventListener("pointermove", onPointerMove);
-      el.removeEventListener("pointerleave", onPointerLeave);
-      window.removeEventListener("resize", updateRect);
-      window.removeEventListener("scroll", updateRect);
+      if (supportsPointer) {
+        window.removeEventListener("pointermove", handlePointerMove);
+      } else {
+        window.removeEventListener("mousemove", handleMouseMove);
+      }
+
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleReset);
+      window.removeEventListener("touchcancel", handleReset);
+      window.removeEventListener("blur", handleReset);
+      window.removeEventListener("resize", handleResizeOrScroll);
+      window.removeEventListener("scroll", handleResizeOrScroll);
       window.cancelAnimationFrame(state.raf);
     };
   }, []);
@@ -533,19 +652,19 @@ export default function PortfolioPage() {
 
     const timer = window.setTimeout(() => {
       searchInputRef.current?.focus();
-    }, 120);
+    }, 140);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [panel]);
+  }, [panel, panelRenderKey]);
 
   useEffect(() => {
     if (panel === "none") return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        closePanel();
+        showHome();
       }
     };
 
@@ -554,7 +673,7 @@ export default function PortfolioPage() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [panel, closePanel]);
+  }, [panel, showHome]);
 
   useEffect(() => {
     if (!DISCORD_STATUS_ENABLED) return;
@@ -563,6 +682,51 @@ export default function PortfolioPage() {
     let timer = 0;
     let controller: AbortController | null = null;
 
+    const requestStatus = async (signal: AbortSignal): Promise<DiscordPresence> => {
+      const localController = new AbortController();
+
+      const abortFromParent = () => {
+        localController.abort();
+      };
+
+      signal.addEventListener("abort", abortFromParent, { once: true });
+
+      const timeoutId = window.setTimeout(() => {
+        localController.abort();
+      }, 4500);
+
+      try {
+        const res = await fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`, {
+          cache: "no-store",
+          signal: localController.signal,
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch Discord status");
+        }
+
+        const data = (await res.json()) as {
+          data?: {
+            discord_status?: string;
+          };
+        };
+
+        const raw = String(data?.data?.discord_status ?? "offline").toLowerCase();
+
+        if (raw === "online" || raw === "idle" || raw === "dnd") {
+          return raw;
+        }
+
+        return "offline";
+      } finally {
+        window.clearTimeout(timeoutId);
+        signal.removeEventListener("abort", abortFromParent);
+      }
+    };
+
     const poll = async () => {
       controller?.abort();
 
@@ -570,27 +734,15 @@ export default function PortfolioPage() {
       controller = currentController;
 
       try {
-        const res = await fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`, {
-          cache: "no-store",
-          signal: currentController.signal,
-        });
+        const nextStatus = await requestStatus(currentController.signal);
 
-        if (!res.ok) throw new Error("Failed to fetch Discord status");
-
-        const data = await res.json();
-        const raw = String(data?.data?.discord_status ?? "offline").toLowerCase();
-
-        const nextStatus: DiscordPresence =
-          raw === "online" || raw === "idle" || raw === "dnd" ? raw : "offline";
-
-        if (cancelled) return;
+        if (cancelled || currentController.signal.aborted) return;
 
         setDiscordStatus(nextStatus);
         setStatusLoaded(true);
       } catch {
         if (cancelled || currentController.signal.aborted) return;
 
-        setDiscordStatus("offline");
         setStatusLoaded(true);
       } finally {
         if (!cancelled) {
@@ -603,10 +755,19 @@ export default function PortfolioPage() {
 
     void poll();
 
+    const onVisibility = () => {
+      if (!document.hidden) {
+        void poll();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       cancelled = true;
       controller?.abort();
       window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -660,11 +821,12 @@ export default function PortfolioPage() {
 
       if (!audio.paused) {
         setMusicUnlocked(true);
-        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 250);
+        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 240);
         return;
       }
 
       audio.muted = false;
+
       if (audio.volume <= 0) {
         audio.volume = 0.001;
       }
@@ -676,7 +838,7 @@ export default function PortfolioPage() {
           .then(() => {
             if (disposed) return;
             setMusicUnlocked(true);
-            fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 550);
+            fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 520);
           })
           .catch(() => {
             if (disposed) return;
@@ -684,7 +846,7 @@ export default function PortfolioPage() {
           });
       } else {
         setMusicUnlocked(true);
-        fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 550);
+        fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 520);
       }
     };
 
@@ -695,13 +857,13 @@ export default function PortfolioPage() {
         return;
       }
 
-      fadeVolume(audio.volume, 0, 320);
+      fadeVolume(audio.volume, 0, 300);
 
       pauseTimer = window.setTimeout(() => {
         if (disposed) return;
         audio.pause();
         audio.currentTime = 0;
-      }, 340);
+      }, 320);
     };
 
     audio.loop = true;
@@ -766,6 +928,9 @@ export default function PortfolioPage() {
       <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" playsInline />
 
       <div className="bg-aurora aurora-layer" />
+      <div className="bg-beams beams-layer" />
+      <div className="bg-depth depth-layer" />
+      <div className="bg-spotlight spotlight-layer" />
       <div className="bg-grid grid-layer" />
       <div className="bg-network network-layer" />
 
@@ -775,8 +940,8 @@ export default function PortfolioPage() {
           <div className="sword-aura aura-2" />
           <div className="sword-ring ring-1" />
           <div className="sword-ring ring-2" />
-
           <div className="sword-glow" />
+
           <div className="sword">
             <span className="blade" />
             <span className="blade-shine" />
@@ -795,7 +960,7 @@ export default function PortfolioPage() {
             ref={(el) => {
               particleRefs.current[index] = el;
             }}
-            className="particle dynamic-particle"
+            className="dynamic-particle"
             data-dx={dot.dx}
             data-dy={dot.dy}
             data-leftpct={dot.leftPct}
@@ -822,7 +987,7 @@ export default function PortfolioPage() {
         <div className="page-loader" aria-hidden="true">
           <div className="page-loader-card">
             <Music2 className="mini loader-icon" />
-            <span className="page-loader-text">Loading</span>
+            <span className="page-loader-text">Loading...</span>
             <span className="page-loader-dots">
               <span />
               <span />
@@ -837,21 +1002,21 @@ export default function PortfolioPage() {
           <nav className="nav-shell" aria-label="Main">
             <button
               type="button"
-              className={`tab-btn ${panel === "none" && !panelClosing ? "active" : ""}`}
-              onClick={closePanel}
+              className={`tab-btn ${activeTab === "home" ? "is-active" : ""}`}
+              onClick={showHome}
             >
               Home
             </button>
             <button
               type="button"
-              className={`tab-btn ${panel === "showcase" && !panelClosing ? "active" : ""}`}
+              className={`tab-btn ${activeTab === "showcase" ? "is-active" : ""}`}
               onClick={() => openPanel("showcase")}
             >
               Showcase
             </button>
             <button
               type="button"
-              className={`tab-btn ${panel === "commission" && !panelClosing ? "active" : ""}`}
+              className={`tab-btn ${activeTab === "commission" ? "is-active" : ""}`}
               onClick={() => openPanel("commission")}
             >
               Commission Me
@@ -879,16 +1044,18 @@ export default function PortfolioPage() {
 
       <div className="wrap">
         <section className="hero">
-          <p className="intro reveal delay-2">Liam • Roblox scripter</p>
+          <p className="intro reveal delay-1">Liam • Roblox scripter</p>
 
           <h1 className="hero-title reveal delay-2">
-            Stable Roblox systems.
-            <span>Clean, simple, solid.</span>
+            Built for real games.
+            <span className="hero-accent">Clean systems. Reliable delivery.</span>
           </h1>
 
-          <p className="hero-copy reveal delay-3">I build full systems that are made to hold up in real games.</p>
+          <p className="hero-copy reveal delay-2">
+            I build Roblox systems that stay organized, perform well, and hold up under real use.
+          </p>
 
-          <div className="status-row reveal delay-3">
+          <div className="status-row reveal delay-2">
             <span className="status-pill">Commissions Open</span>
             <span className="status-pill">Queue 0 / 3</span>
             <span className="status-pill">Fast replies</span>
@@ -904,21 +1071,31 @@ export default function PortfolioPage() {
           </div>
 
           <div className="discord-callout reveal delay-3">
-            <span>JOIN DISCORD SERVER FOR FULL PORTFOLIO | DISCORD</span>
+            <span>JOIN DISCORD SERVER FOR FULL PORTFOLIO</span>
             <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="discord-callout-btn">
               Join Server
             </a>
           </div>
 
           <div className="stat-row reveal delay-3">
-            <div className="stat-pill">
+            <div className="stat-pill stat-big">
               <strong>2M+</strong>
-              <span>community</span>
+              <span>community reach</span>
             </div>
-            <div className="stat-pill">
+            <div className="stat-pill stat-big">
               <strong>4B+</strong>
-              <span>contributed</span>
+              <span>contributed visits</span>
             </div>
+            <div className="stat-pill stat-big">
+              <strong>AAA</strong>
+              <span>execution</span>
+            </div>
+          </div>
+
+          <div className="cred-row reveal delay-3">
+            <span className="cred-pill">Organized explorer structure</span>
+            <span className="cred-pill">Reliable under load</span>
+            <span className="cred-pill">Clean, maintainable code</span>
           </div>
 
           <div className="cta-row reveal delay-3">
@@ -943,19 +1120,25 @@ export default function PortfolioPage() {
       </div>
 
       {panel !== "none" && (
-        <div className={`overlay ${panelClosing ? "overlay-closing" : "overlay-open"}`} onClick={closePanel}>
+        <div className={`overlay ${panelClosing ? "overlay-closing" : "overlay-open"}`} onClick={showHome}>
           <section
+            key={`${panel}-${panelRenderKey}`}
             className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} ${panelClosing ? "panel-closing" : "panel-opening"}`}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={panel === "showcase" ? "Showcase" : "Commission me"}
           >
+            <div className="panel-sheen" />
+
             {panel === "showcase" ? (
               <>
                 <div className="panel-head">
-                  <h2>Showcase</h2>
-                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
+                  <div>
+                    <p className="eyebrow">Portfolio</p>
+                    <h2>Showcase</h2>
+                  </div>
+                  <button type="button" className="close-btn" onClick={showHome} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -967,11 +1150,12 @@ export default function PortfolioPage() {
                       ref={searchInputRef}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search..."
+                      placeholder="Search systems..."
                       className="search-input"
                       aria-label="Search showcase"
                     />
                   </div>
+                  <div className="toolbar-meta">{filteredShowcases.length} systems</div>
                 </div>
 
                 <div className="video-grid">
@@ -995,7 +1179,7 @@ export default function PortfolioPage() {
                               className="video-frame"
                               allow="autoplay; fullscreen; picture-in-picture"
                               allowFullScreen
-                              loading={index < 3 ? "eager" : "lazy"}
+                              loading={index < 5 ? "eager" : "lazy"}
                               referrerPolicy="strict-origin-when-cross-origin"
                               onLoad={() => markVideoLoaded(key)}
                             />
@@ -1022,7 +1206,7 @@ export default function PortfolioPage() {
 
                 <section className="big-showcase-section">
                   <div className="section-heading">
-                    <h3>BIG SHOWCASES</h3>
+                    <h3>FEATURED SYSTEMS</h3>
                   </div>
 
                   <div className="big-showcase-list">
@@ -1075,7 +1259,7 @@ export default function PortfolioPage() {
                     <p className="eyebrow">Commission</p>
                     <h2>Commission Me</h2>
                   </div>
-                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
+                  <button type="button" className="close-btn" onClick={showHome} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -1104,17 +1288,17 @@ export default function PortfolioPage() {
                     <ul>
                       <li>50% upfront, 50% on delivery</li>
                       <li>1–2 free revisions</li>
-                      <li>Rush is +10%</li>
+                      <li>Rush work is +10%</li>
                       <li>7 days of bug fixes after delivery</li>
                     </ul>
                   </div>
 
                   <div className="info-card">
-                    <h3>Links</h3>
+                    <h3>Why this holds up</h3>
                     <ul>
-                      <li>Email copies on click</li>
-                      <li>Discord opens in app/web</li>
-                      <li>Server invite is included</li>
+                      <li>Clean structure that stays readable</li>
+                      <li>Player-facing polish that looks premium</li>
+                      <li>Better handling of edge cases and real use</li>
                     </ul>
                   </div>
                 </div>
@@ -1132,14 +1316,14 @@ export default function PortfolioPage() {
                       <Check className="mini" />
                     </div>
                     <h4>Stable</h4>
-                    <p>Tested for edge cases.</p>
+                    <p>Made to hold up under pressure.</p>
                   </div>
                   <div className="policy-card">
                     <div className="policy-icon">
                       <Check className="mini" />
                     </div>
-                    <h4>Fast</h4>
-                    <p>Clear quotes and progress.</p>
+                    <h4>Premium</h4>
+                    <p>Presentation that feels high-end.</p>
                   </div>
                 </div>
 
@@ -1196,12 +1380,15 @@ export default function PortfolioPage() {
           position: relative;
           min-height: 100vh;
           overflow: hidden;
-          background: radial-gradient(circle at 50% 0%, #080808 0%, #030303 35%, #000 100%);
+          background:
+            radial-gradient(circle at 50% 0%, #090909 0%, #040404 34%, #000 100%);
           color: #fff;
+          isolation: isolate;
+          perspective: 1400px;
           --mx: 0;
           --my: 0;
-          perspective: 1400px;
-          isolation: isolate;
+          --cx: 50%;
+          --cy: 34%;
         }
 
         .page-shell.booting .top-stack,
@@ -1213,16 +1400,16 @@ export default function PortfolioPage() {
         .page-shell.ready .top-stack,
         .page-shell.ready .wrap {
           opacity: 1;
-          transition: opacity 0.35s ease;
+          transition: opacity 0.36s ease;
         }
 
         .page-loader {
           position: fixed;
           inset: 0;
-          z-index: 80;
+          z-index: 90;
           display: grid;
           place-items: center;
-          background: rgba(0, 0, 0, 0.58);
+          background: rgba(0, 0, 0, 0.62);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
         }
@@ -1272,6 +1459,8 @@ export default function PortfolioPage() {
         }
 
         .aurora-layer,
+        .beams-layer,
+        .depth-layer,
         .grid-layer,
         .network-layer,
         .sword-layer {
@@ -1281,23 +1470,34 @@ export default function PortfolioPage() {
         }
 
         .aurora-layer {
-          transform: translate3d(calc(var(--mx) * 14px), calc(var(--my) * 10px), 0) scale(1.06);
+          transform: translate3d(calc(var(--mx) * 18px), calc(var(--my) * 14px), 0) scale(1.08);
         }
 
-        .grid-layer {
-          transform: translate3d(calc(var(--mx) * 22px), calc(var(--my) * 16px), 0) scale(1.04);
+        .beams-layer {
+          transform: translate3d(calc(var(--mx) * 24px), calc(var(--my) * 16px), 0) scale(1.03);
         }
 
-        .network-layer {
+        .depth-layer {
           transform: translate3d(calc(var(--mx) * 30px), calc(var(--my) * 22px), 0) scale(1.05);
         }
 
+        .grid-layer {
+          transform: translate3d(calc(var(--mx) * 34px), calc(var(--my) * 24px), 0) scale(1.05);
+        }
+
+        .network-layer {
+          transform: translate3d(calc(var(--mx) * 44px), calc(var(--my) * 30px), 0) scale(1.06);
+        }
+
         .sword-layer {
-          transform: translate3d(calc(var(--mx) * 26px), calc(var(--my) * 18px), 0)
-            rotate(calc(var(--mx) * 4deg));
+          transform: translate3d(calc(var(--mx) * 36px), calc(var(--my) * 24px), 0)
+            rotate(calc(var(--mx) * 5deg));
         }
 
         .bg-aurora,
+        .bg-beams,
+        .bg-depth,
+        .bg-spotlight,
         .bg-grid,
         .bg-network,
         .bg-sword-wrap,
@@ -1310,11 +1510,36 @@ export default function PortfolioPage() {
         .bg-aurora {
           background:
             radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.05), transparent 24%),
-            radial-gradient(circle at 22% 28%, rgba(255, 255, 255, 0.025), transparent 20%),
-            radial-gradient(circle at 78% 24%, rgba(255, 255, 255, 0.02), transparent 18%);
+            radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.025), transparent 20%),
+            radial-gradient(circle at 80% 24%, rgba(255, 255, 255, 0.02), transparent 18%);
           background-repeat: no-repeat;
-          background-size: 120% 120%, 110% 110%, 110% 110%;
           animation: auroraDrift 12s ease-in-out infinite alternate;
+        }
+
+        .bg-beams {
+          opacity: 0.35;
+          background:
+            linear-gradient(115deg, transparent 43%, rgba(255, 255, 255, 0.03) 49%, transparent 56%),
+            linear-gradient(67deg, transparent 42%, rgba(255, 255, 255, 0.02) 49%, transparent 56%);
+          background-size: 480px 480px, 420px 420px;
+          animation: networkDrift 24s linear infinite;
+        }
+
+        .bg-depth {
+          background:
+            radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.06), transparent 20%),
+            radial-gradient(circle at 18% 38%, rgba(129, 140, 248, 0.08), transparent 22%),
+            radial-gradient(circle at 82% 32%, rgba(244, 114, 182, 0.06), transparent 20%);
+          opacity: 0.9;
+        }
+
+        .bg-spotlight {
+          opacity: 0.9;
+          background:
+            radial-gradient(420px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.08), transparent 58%),
+            radial-gradient(170px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.06), transparent 62%);
+          mix-blend-mode: screen;
+          transition: opacity 0.2s ease;
         }
 
         .bg-grid {
@@ -1388,7 +1613,6 @@ export default function PortfolioPage() {
           border-radius: 999px;
           border: 1px solid rgba(255, 255, 255, 0.08);
           opacity: 0.22;
-          filter: blur(0.2px);
         }
 
         .ring-1 {
@@ -1567,6 +1791,8 @@ export default function PortfolioPage() {
           margin: 0 auto;
           flex-wrap: wrap;
           justify-content: center;
+          position: relative;
+          overflow: hidden;
         }
 
         .tab-btn {
@@ -1576,16 +1802,29 @@ export default function PortfolioPage() {
           padding: 10px 16px;
           background: transparent;
           color: rgba(255, 255, 255, 0.68);
-          font-weight: 750;
-          transition: transform 0.22s ease, background 0.22s ease, color 0.22s ease;
+          font-weight: 760;
           white-space: nowrap;
+          position: relative;
+          z-index: 1;
+          transform: translateZ(0);
+          transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
         }
 
-        .tab-btn:hover,
-        .tab-btn.active {
+        .tab-btn:hover {
+          background: rgba(255, 255, 255, 0.08);
+          color: #fff;
+          transform: translateY(-1px);
+        }
+
+        .tab-btn.is-active {
           background: #fff;
           color: #000;
-          transform: translateY(-1px);
+        }
+
+        .tab-btn.is-active:hover {
+          background: #fff;
+          color: #000;
+          transform: none;
         }
 
         .top-profile {
@@ -1601,7 +1840,9 @@ export default function PortfolioPage() {
           border-radius: 999px;
           object-fit: cover;
           border: 2px solid rgba(255, 255, 255, 0.14);
-          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+          box-shadow:
+            0 10px 28px rgba(0, 0, 0, 0.45),
+            0 0 0 1px rgba(255, 255, 255, 0.05);
           background: #111;
           animation: floatAvatar 5.6s ease-in-out infinite;
         }
@@ -1613,7 +1854,7 @@ export default function PortfolioPage() {
           padding: 8px 12px;
           border-radius: 999px;
           font-size: 12px;
-          font-weight: 750;
+          font-weight: 760;
           transition: border-color 0.22s ease, background 0.22s ease, color 0.22s ease;
         }
 
@@ -1664,7 +1905,6 @@ export default function PortfolioPage() {
 
         .badge-offline .dot {
           background: #a1a1aa;
-          box-shadow: none;
         }
 
         .wrap {
@@ -1681,44 +1921,50 @@ export default function PortfolioPage() {
 
         .hero {
           width: 100%;
-          max-width: 940px;
+          max-width: 960px;
           text-align: center;
         }
 
         .intro {
           margin: 0;
           font-size: 14px;
-          font-weight: 650;
+          font-weight: 660;
           color: rgba(255, 255, 255, 0.82);
         }
 
         .hero-title {
           margin: 18px 0 0;
-          font-size: clamp(38px, 6.6vw, 84px);
-          line-height: 0.98;
-          font-weight: 900;
+          font-size: clamp(40px, 6.8vw, 88px);
+          line-height: 0.96;
+          font-weight: 950;
           letter-spacing: -0.055em;
+          text-shadow: 0 10px 35px rgba(255, 255, 255, 0.05);
         }
 
-        .hero-title span {
+        .hero-accent {
           display: block;
-          margin-top: 8px;
-          color: rgba(255, 255, 255, 0.58);
+          margin-top: 10px;
+          background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.6));
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
           font-family: Georgia, "Times New Roman", serif;
           font-style: italic;
           font-weight: 500;
+          letter-spacing: -0.02em;
         }
 
         .hero-copy {
-          margin: 14px auto 0;
-          max-width: 620px;
+          margin: 16px auto 0;
+          max-width: 680px;
           font-size: 15px;
-          line-height: 1.7;
+          line-height: 1.75;
           color: rgba(255, 255, 255, 0.56);
         }
 
         .status-row,
         .stat-row,
+        .cred-row,
         .cta-row,
         .skills,
         .toolbar-row,
@@ -1734,7 +1980,7 @@ export default function PortfolioPage() {
         }
 
         .status-row {
-          margin-top: 14px;
+          margin-top: 16px;
         }
 
         .discord-callout {
@@ -1752,22 +1998,28 @@ export default function PortfolioPage() {
           font-size: 12px;
           font-weight: 900;
           letter-spacing: 0.06em;
+          box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
         }
 
         .stat-row {
+          margin-top: 16px;
+        }
+
+        .cred-row {
           margin-top: 14px;
         }
 
         .cta-row {
-          margin-top: 18px;
+          margin-top: 20px;
         }
 
         .skills {
-          margin-top: 16px;
+          margin-top: 18px;
         }
 
         .status-pill,
         .stat-pill,
+        .cred-pill,
         .skill-pill {
           border-radius: 999px;
           border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1776,27 +2028,14 @@ export default function PortfolioPage() {
           transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
         }
 
-        .status-pill {
+        .status-pill,
+        .cred-pill {
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.72);
+          color: rgba(255, 255, 255, 0.74);
         }
 
-        .music-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font: inherit;
-          cursor: pointer;
-          color: #fff;
-        }
-
-        .music-pill.music-on {
-          border-color: rgba(255, 255, 255, 0.14);
-          background: rgba(255, 255, 255, 0.08);
-        }
-
-        .music-pill.music-off {
-          opacity: 0.7;
+        .stat-big {
+          padding: 12px 16px;
         }
 
         .stat-pill strong {
@@ -1808,11 +2047,29 @@ export default function PortfolioPage() {
 
         .stat-pill span {
           display: block;
-          margin-top: 5px;
+          margin-top: 6px;
           font-size: 10px;
           text-transform: uppercase;
           letter-spacing: 0.14em;
           color: rgba(255, 255, 255, 0.45);
+        }
+
+        .music-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          cursor: pointer;
+          font: inherit;
+          color: #fff;
+        }
+
+        .music-pill.music-on {
+          border-color: rgba(255, 255, 255, 0.14);
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .music-pill.music-off {
+          opacity: 0.7;
         }
 
         .skill-pill {
@@ -1894,7 +2151,7 @@ export default function PortfolioPage() {
           border-radius: 999px;
           padding: 12px 16px;
           border: 1px solid rgba(255, 255, 255, 0.12);
-          font-weight: 850;
+          font-weight: 860;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1903,7 +2160,38 @@ export default function PortfolioPage() {
           color: #fff;
           text-decoration: none;
           font: inherit;
-          transition: transform 0.22s ease, background 0.22s ease, color 0.22s ease, border-color 0.22s ease;
+          position: relative;
+          overflow: hidden;
+          transition:
+            transform 0.22s ease,
+            background 0.22s ease,
+            color 0.22s ease,
+            border-color 0.22s ease,
+            box-shadow 0.22s ease;
+        }
+
+        .main-btn::before,
+        .ghost-btn::before,
+        .commission-cta::before,
+        .commission-ghost::before,
+        .discord-callout-btn::before,
+        .video-open-btn::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(120deg, transparent 20%, rgba(255, 255, 255, 0.18) 50%, transparent 80%);
+          transform: translateX(-120%);
+          transition: transform 0.55s ease;
+          pointer-events: none;
+        }
+
+        .main-btn:hover::before,
+        .ghost-btn:hover::before,
+        .commission-cta:hover::before,
+        .commission-ghost:hover::before,
+        .discord-callout-btn:hover::before,
+        .video-open-btn:hover::before {
+          transform: translateX(120%);
         }
 
         .main-btn,
@@ -1923,8 +2211,16 @@ export default function PortfolioPage() {
         .video-open-btn:hover,
         .status-pill:hover,
         .stat-pill:hover,
+        .cred-pill:hover,
         .skill-pill:hover {
           transform: translateY(-2px);
+        }
+
+        .main-btn:hover,
+        .commission-cta:hover,
+        .discord-callout-btn:hover,
+        .video-open-btn:hover {
+          box-shadow: 0 14px 34px rgba(255, 255, 255, 0.12);
         }
 
         .overlay {
@@ -1934,37 +2230,52 @@ export default function PortfolioPage() {
           display: grid;
           place-items: center;
           padding: 24px;
-          background: rgba(0, 0, 0, 0.88);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
+          background: rgba(0, 0, 0, 0.9);
+          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(18px);
         }
 
         .overlay-open {
-          animation: overlayIn 0.22s ease both;
+          animation: overlayIn 0.24s ease both;
         }
 
         .overlay-closing {
-          animation: overlayOut 0.22s ease both;
+          animation: overlayOut 0.2s ease both;
         }
 
         .panel {
+          position: relative;
           width: min(1120px, 100%);
           max-height: min(88dvh, 920px);
           overflow: auto;
           border-radius: 30px;
           padding: 24px;
+          will-change: transform, opacity;
+          box-shadow:
+            0 26px 80px rgba(0, 0, 0, 0.58),
+            inset 0 1px 0 rgba(255, 255, 255, 0.06);
         }
 
         .panel-showcase {
-          background: rgba(6, 6, 6, 0.96);
+          background: rgba(7, 7, 7, 0.96);
         }
 
         .panel-commission {
           background: rgba(8, 8, 8, 0.96);
         }
 
+        .panel-sheen {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          border-radius: inherit;
+          background:
+            radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.045), transparent 24%),
+            radial-gradient(circle at 100% 20%, rgba(255, 255, 255, 0.03), transparent 26%);
+        }
+
         .panel-opening {
-          animation: panelIn 0.24s ease both;
+          animation: panelIn 0.34s cubic-bezier(0.18, 0.86, 0.24, 1) both;
         }
 
         .panel-closing {
@@ -1972,6 +2283,8 @@ export default function PortfolioPage() {
         }
 
         .panel-head {
+          position: relative;
+          z-index: 1;
           justify-content: space-between;
           margin-bottom: 18px;
         }
@@ -1980,7 +2293,7 @@ export default function PortfolioPage() {
           margin: 0;
           font-size: clamp(28px, 5vw, 48px);
           line-height: 1;
-          font-weight: 900;
+          font-weight: 920;
           letter-spacing: -0.04em;
         }
 
@@ -2003,7 +2316,7 @@ export default function PortfolioPage() {
           align-items: center;
           justify-content: center;
           background: rgba(255, 255, 255, 0.06);
-          color: rgba(255, 255, 255, 0.8);
+          color: rgba(255, 255, 255, 0.82);
           transition: transform 0.22s ease, background 0.22s ease;
           flex-shrink: 0;
         }
@@ -2014,14 +2327,27 @@ export default function PortfolioPage() {
         }
 
         .toolbar-row {
+          position: relative;
+          z-index: 1;
           margin-bottom: 18px;
           justify-content: flex-start;
+        }
+
+        .toolbar-meta {
+          border-radius: 999px;
+          padding: 10px 14px;
+          font-size: 12px;
+          font-weight: 820;
+          color: rgba(255, 255, 255, 0.72);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.04);
+          white-space: nowrap;
         }
 
         .search-shell {
           min-width: min(340px, 100%);
           width: 100%;
-          max-width: 440px;
+          max-width: 460px;
           display: flex;
           align-items: center;
           gap: 10px;
@@ -2057,6 +2383,8 @@ export default function PortfolioPage() {
         }
 
         .video-grid {
+          position: relative;
+          z-index: 1;
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 14px;
@@ -2072,15 +2400,36 @@ export default function PortfolioPage() {
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.04);
           padding: 16px;
-          transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+          position: relative;
+          overflow: hidden;
+          transition:
+            transform 0.22s ease,
+            border-color 0.22s ease,
+            background 0.22s ease,
+            box-shadow 0.22s ease;
+        }
+
+        .video-card::before,
+        .tier-card::before,
+        .info-card::before,
+        .policy-card::before,
+        .big-showcase-card::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(140deg, rgba(255, 255, 255, 0.025), transparent 38%, transparent 62%, rgba(255, 255, 255, 0.015));
+          pointer-events: none;
         }
 
         .video-card:hover,
         .tier-card:hover,
+        .info-card:hover,
+        .policy-card:hover,
         .big-showcase-card:hover {
           transform: translateY(-2px);
           border-color: rgba(255, 255, 255, 0.14);
           background: rgba(255, 255, 255, 0.05);
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
         }
 
         .video-frame-shell {
@@ -2160,6 +2509,8 @@ export default function PortfolioPage() {
           margin: 14px 0 0;
           font-size: 18px;
           font-weight: 900;
+          position: relative;
+          z-index: 1;
         }
 
         .video-card p,
@@ -2171,6 +2522,8 @@ export default function PortfolioPage() {
           margin: 8px 0 0;
           line-height: 1.65;
           color: rgba(255, 255, 255, 0.58);
+          position: relative;
+          z-index: 1;
         }
 
         .video-actions {
@@ -2179,6 +2532,8 @@ export default function PortfolioPage() {
           justify-content: flex-start;
           flex-wrap: wrap;
           gap: 10px;
+          position: relative;
+          z-index: 1;
         }
 
         .empty-card {
@@ -2188,6 +2543,8 @@ export default function PortfolioPage() {
         }
 
         .big-showcase-section {
+          position: relative;
+          z-index: 1;
           margin-top: 22px;
         }
 
@@ -2218,6 +2575,8 @@ export default function PortfolioPage() {
           display: flex;
           flex-direction: column;
           justify-content: center;
+          position: relative;
+          z-index: 1;
         }
 
         .big-bio {
@@ -2225,6 +2584,8 @@ export default function PortfolioPage() {
         }
 
         .pricing-list {
+          position: relative;
+          z-index: 1;
           display: grid;
           gap: 14px;
         }
@@ -2250,9 +2611,11 @@ export default function PortfolioPage() {
         }
 
         .tier-price {
-          color: rgba(255, 255, 255, 0.85);
+          color: rgba(255, 255, 255, 0.86);
           font-weight: 850;
           font-size: 14px;
+          position: relative;
+          z-index: 1;
         }
 
         .tier-meta {
@@ -2261,10 +2624,14 @@ export default function PortfolioPage() {
           color: rgba(255, 255, 255, 0.45);
           text-transform: uppercase;
           letter-spacing: 0.12em;
+          position: relative;
+          z-index: 1;
         }
 
         .commission-grid,
         .policy-grid {
+          position: relative;
+          z-index: 1;
           display: grid;
           gap: 14px;
           margin-top: 16px;
@@ -2298,9 +2665,13 @@ export default function PortfolioPage() {
           align-items: center;
           justify-content: center;
           background: rgba(255, 255, 255, 0.08);
+          position: relative;
+          z-index: 1;
         }
 
         .contact-actions {
+          position: relative;
+          z-index: 1;
           margin-top: 18px;
         }
 
@@ -2319,7 +2690,7 @@ export default function PortfolioPage() {
         }
 
         .delay-2 {
-          animation-delay: 0.12s;
+          animation-delay: 0.13s;
         }
 
         .delay-3 {
@@ -2358,7 +2729,7 @@ export default function PortfolioPage() {
         @keyframes panelIn {
           from {
             opacity: 0;
-            transform: translateY(12px) scale(0.985);
+            transform: translateY(18px) scale(0.972);
           }
           to {
             opacity: 1;
@@ -2373,7 +2744,7 @@ export default function PortfolioPage() {
           }
           to {
             opacity: 0;
-            transform: translateY(10px) scale(0.987);
+            transform: translateY(10px) scale(0.988);
           }
         }
 
@@ -2402,14 +2773,14 @@ export default function PortfolioPage() {
           0% {
             background-position:
               50% 14%,
-              22% 28%,
-              78% 24%;
+              20% 30%,
+              80% 24%;
           }
           100% {
             background-position:
               53% 18%,
-              18% 34%,
-              82% 20%;
+              16% 36%,
+              84% 20%;
           }
         }
 
@@ -2591,17 +2962,21 @@ export default function PortfolioPage() {
           }
 
           .overlay {
-            padding: 12px;
-            place-items: start center;
+            display: block;
+            padding: 12px 12px calc(18px + env(safe-area-inset-bottom, 0px));
             overflow-y: auto;
+            overscroll-behavior-y: contain;
+            -webkit-overflow-scrolling: touch;
           }
 
           .panel {
             width: 100%;
             max-height: none;
-            min-height: calc(100dvh - 24px);
+            min-height: auto;
+            margin: 0 auto;
             border-radius: 24px;
             padding: 18px;
+            overflow: visible;
           }
 
           .panel-head {
@@ -2617,31 +2992,6 @@ export default function PortfolioPage() {
             max-width: 100%;
           }
 
-          .discord-callout,
-          .status-row,
-          .stat-row,
-          .cta-row,
-          .skills,
-          .contact-actions {
-            width: 100%;
-          }
-
-          .status-pill,
-          .stat-pill,
-          .skill-pill,
-          .main-btn,
-          .ghost-btn,
-          .commission-cta,
-          .commission-ghost,
-          .discord-callout-btn,
-          .video-open-btn {
-            width: 100%;
-          }
-
-          .contact-actions > * {
-            flex: 1 1 100%;
-          }
-
           .video-card,
           .tier-card,
           .info-card,
@@ -2650,14 +3000,6 @@ export default function PortfolioPage() {
           .big-showcase-card {
             border-radius: 20px;
             padding: 14px;
-          }
-
-          .video-actions {
-            justify-content: stretch;
-          }
-
-          .video-actions > * {
-            flex: 1 1 100%;
           }
         }
 
@@ -2709,17 +3051,8 @@ export default function PortfolioPage() {
           *::after {
             animation-duration: 0.01ms !important;
             animation-iteration-count: 1 !important;
-            transition-duration: 0.01ms !important;
+            transition-duration: 0.12s !important;
             scroll-behavior: auto !important;
-          }
-
-          .aurora-layer,
-          .grid-layer,
-          .network-layer,
-          .sword-layer,
-          .dynamic-particle,
-          .video-frame {
-            transform: none !important;
           }
         }
       `}</style>
