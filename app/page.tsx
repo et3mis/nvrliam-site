@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowUpRight,
   Boxes,
@@ -60,6 +60,7 @@ type ParticleDot = {
   dx: number;
   dy: number;
   blur: number;
+  phase: number;
 };
 
 type CSSVars = CSSProperties & {
@@ -74,6 +75,8 @@ const INITIAL_BOOT_MS = 900;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
 const BG_MUSIC_VOLUME = 0.18;
 const PANEL_EXIT_MS = 240;
+const EMAIL_ADDRESS = "liamj7872@gmail.com";
+const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
 
 const avatarFallback = `data:image/svg+xml;utf8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
@@ -141,6 +144,7 @@ function createParticleDots(count = 64): ParticleDot[] {
     const dx = Number((((i % 11) - 5) * (0.55 + (i % 3) * 0.18)).toFixed(2));
     const dy = Number((((((i + 4) % 11) - 5) || 1) * (0.5 + (i % 4) * 0.16)).toFixed(2));
     const blur = Math.max(0, (size - 2) * 0.4);
+    const phase = Number((i * 0.37).toFixed(3));
 
     return {
       left: `${leftPct}%`,
@@ -154,6 +158,7 @@ function createParticleDots(count = 64): ParticleDot[] {
       dx,
       dy,
       blur,
+      phase,
     };
   });
 }
@@ -171,8 +176,9 @@ function waitForPageLoad() {
 }
 
 function waitForFonts() {
-  if (!("fonts" in document)) return Promise.resolve();
-  return (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => undefined);
+  const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+  if (!fonts?.ready) return Promise.resolve();
+  return fonts.ready.then(() => undefined).catch(() => undefined);
 }
 
 function preloadImage(src: string) {
@@ -211,6 +217,10 @@ function getVideoUrl(embed: string) {
   return embed.replace("https://streamable.com/e/", "https://streamable.com/").replace(/\?.*$/, "");
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
   if (icon === "fix") return <Wrench className="mini" />;
   if (icon === "mini") return <Boxes className="mini" />;
@@ -241,6 +251,69 @@ export default function PortfolioPage() {
   const panelCloseTimerRef = useRef<number | null>(null);
 
   const particleDots = useMemo(() => createParticleDots(), []);
+
+  const openPanel = useCallback((next: Exclude<Panel, "none">) => {
+    if (panelCloseTimerRef.current !== null) {
+      window.clearTimeout(panelCloseTimerRef.current);
+      panelCloseTimerRef.current = null;
+    }
+
+    setPanelClosing(false);
+    setPanel(next);
+  }, []);
+
+  const closePanel = useCallback(() => {
+    if (panel === "none" || panelClosing) return;
+
+    setPanelClosing(true);
+
+    if (panelCloseTimerRef.current !== null) {
+      window.clearTimeout(panelCloseTimerRef.current);
+    }
+
+    panelCloseTimerRef.current = window.setTimeout(() => {
+      setPanel("none");
+      setPanelClosing(false);
+      panelCloseTimerRef.current = null;
+    }, PANEL_EXIT_MS);
+  }, [panel, panelClosing]);
+
+  const markVideoLoaded = useCallback((key: string) => {
+    setLoadedVideos((prev) => {
+      if (prev[key]) return prev;
+      return { ...prev, [key]: true };
+    });
+  }, []);
+
+  const copyEmail = useCallback(async () => {
+    let copied = false;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(EMAIL_ADDRESS);
+        copied = true;
+      } else {
+        copied = fallbackCopy(EMAIL_ADDRESS);
+      }
+    } catch {
+      copied = fallbackCopy(EMAIL_ADDRESS);
+    }
+
+    if (!copied) {
+      setEmailCopied(false);
+      return;
+    }
+
+    setEmailCopied(true);
+
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+
+    copyTimerRef.current = window.setTimeout(() => {
+      setEmailCopied(false);
+    }, 1200);
+  }, []);
 
   const filteredShowcases = useMemo(() => {
     const value = query.trim().toLowerCase();
@@ -287,42 +360,49 @@ export default function PortfolioPage() {
     };
   }, []);
 
-useEffect(() => {
-  const links: HTMLLinkElement[] = [];
-  const entries: Array<{
-    rel: string;
-    href: string;
-    crossOrigin?: string | null;
-  }> = [
-    { rel: "preconnect", href: "https://streamable.com", crossOrigin: "" },
-    { rel: "dns-prefetch", href: "https://streamable.com" },
-  ];
+  useEffect(() => {
+    const links: HTMLLinkElement[] = [];
+    const entries: Array<{
+      rel: string;
+      href: string;
+      crossOrigin?: string | null;
+    }> = [
+      { rel: "preconnect", href: "https://streamable.com", crossOrigin: "" },
+      { rel: "dns-prefetch", href: "https://streamable.com" },
+    ];
 
-  for (const entry of entries) {
-    const link = document.createElement("link");
-    link.rel = entry.rel;
-    link.href = entry.href;
+    for (const entry of entries) {
+      const link = document.createElement("link");
+      link.rel = entry.rel;
+      link.href = entry.href;
 
-    if (entry.crossOrigin != null) {
-      link.crossOrigin = entry.crossOrigin;
-    }
-
-    document.head.appendChild(link);
-    links.push(link);
-  }
-
-  return () => {
-    for (const link of links) {
-      if (link.parentNode) {
-        link.parentNode.removeChild(link);
+      if (entry.crossOrigin != null) {
+        link.crossOrigin = entry.crossOrigin;
       }
+
+      document.head.appendChild(link);
+      links.push(link);
     }
-  };
-}, []);
+
+    return () => {
+      for (const link of links) {
+        if (link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      el.style.setProperty("--mx", "0");
+      el.style.setProperty("--my", "0");
+      return;
+    }
 
     const state = {
       targetX: 0,
@@ -347,13 +427,14 @@ useEffect(() => {
       state.height = Math.max(rect.height, 1);
     };
 
-    const frame = () => {
+    const frame = (now: number) => {
       state.currentX += (state.targetX - state.currentX) * 0.08;
       state.currentY += (state.targetY - state.currentY) * 0.08;
 
       el.style.setProperty("--mx", state.currentX.toFixed(4));
       el.style.setProperty("--my", state.currentY.toFixed(4));
 
+      const t = now * 0.001;
       const repelRadius = Math.min(170, Math.max(95, state.width * 0.13));
       const repelStrength = 34;
 
@@ -364,12 +445,17 @@ useEffect(() => {
         const baseDy = Number(node.dataset.dy ?? 0);
         const leftPct = Number(node.dataset.leftpct ?? 50);
         const topPct = Number(node.dataset.toppct ?? 50);
+        const phase = Number(node.dataset.phase ?? 0);
+        const size = Number(node.dataset.size ?? 3);
 
         const dotX = (leftPct / 100) * state.width;
         const dotY = (topPct / 100) * state.height;
 
         const driftX = state.currentX * 14 * baseDx;
         const driftY = state.currentY * 14 * baseDy;
+
+        const ambientX = Math.sin(t * (0.45 + size * 0.02) + phase) * (2.8 + size * 0.6);
+        const ambientY = Math.cos(t * (0.6 + size * 0.025) + phase) * (2.4 + size * 0.55);
 
         let repelX = 0;
         let repelY = 0;
@@ -386,17 +472,17 @@ useEffect(() => {
           }
         }
 
-        node.style.transform = `translate3d(${(driftX + repelX).toFixed(2)}px, ${(driftY + repelY).toFixed(2)}px, 0)`;
+        node.style.transform = `translate3d(${(driftX + ambientX + repelX).toFixed(2)}px, ${(driftY + ambientY + repelY).toFixed(2)}px, 0)`;
       }
 
       state.raf = window.requestAnimationFrame(frame);
     };
 
-    const onMove = (e: MouseEvent) => {
+    const onPointerMove = (e: PointerEvent) => {
       updateRect();
 
-      const localX = e.clientX - state.left;
-      const localY = e.clientY - state.top;
+      const localX = clamp(e.clientX - state.left, 0, state.width);
+      const localY = clamp(e.clientY - state.top, 0, state.height);
 
       state.targetX = (localX / state.width - 0.5) * 2;
       state.targetY = (localY / state.height - 0.5) * 2;
@@ -405,7 +491,7 @@ useEffect(() => {
       state.cursorActive = true;
     };
 
-    const onLeave = () => {
+    const onPointerLeave = () => {
       state.targetX = 0;
       state.targetY = 0;
       state.cursorActive = false;
@@ -414,14 +500,14 @@ useEffect(() => {
     updateRect();
     state.raf = window.requestAnimationFrame(frame);
 
-    window.addEventListener("mousemove", onMove, { passive: true });
-    window.addEventListener("mouseleave", onLeave);
+    el.addEventListener("pointermove", onPointerMove, { passive: true });
+    el.addEventListener("pointerleave", onPointerLeave);
     window.addEventListener("resize", updateRect);
     window.addEventListener("scroll", updateRect, { passive: true });
 
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseleave", onLeave);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerleave", onPointerLeave);
       window.removeEventListener("resize", updateRect);
       window.removeEventListener("scroll", updateRect);
       window.cancelAnimationFrame(state.raf);
@@ -468,7 +554,7 @@ useEffect(() => {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [panel]);
+  }, [panel, closePanel]);
 
   useEffect(() => {
     if (!DISCORD_STATUS_ENABLED) return;
@@ -551,11 +637,10 @@ useEffect(() => {
       const start = performance.now();
 
       const tick = (now: number) => {
-        if (!audio || disposed) return;
+        if (disposed) return;
 
         const progress = Math.min(1, (now - start) / duration);
         const eased = 1 - Math.pow(1 - progress, 3);
-
         audio.volume = from + (to - from) * eased;
 
         if (progress < 1) {
@@ -568,50 +653,87 @@ useEffect(() => {
       fadeFrameRef.current = window.requestAnimationFrame(tick);
     };
 
-    const startMusic = async () => {
-      if (!musicEnabled) return;
+    const startMusic = () => {
+      if (!musicEnabled || disposed) return;
 
       clearPauseTimer();
 
-      try {
-        if (audio.paused) {
-          await audio.play();
-        }
-
+      if (!audio.paused) {
         setMusicUnlocked(true);
-        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 550);
-      } catch {
-        setMusicUnlocked(false);
+        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 250);
+        return;
+      }
+
+      audio.muted = false;
+      if (audio.volume <= 0) {
+        audio.volume = 0.001;
+      }
+
+      const playPromise = audio.play();
+
+      if (playPromise && typeof playPromise.then === "function") {
+        playPromise
+          .then(() => {
+            if (disposed) return;
+            setMusicUnlocked(true);
+            fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 550);
+          })
+          .catch(() => {
+            if (disposed) return;
+            setMusicUnlocked(false);
+          });
+      } else {
+        setMusicUnlocked(true);
+        fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 550);
       }
     };
 
     const stopMusic = () => {
       clearPauseTimer();
+
+      if (audio.paused && audio.volume <= 0.001) {
+        return;
+      }
+
       fadeVolume(audio.volume, 0, 320);
 
       pauseTimer = window.setTimeout(() => {
-        if (!audio || disposed) return;
+        if (disposed) return;
         audio.pause();
+        audio.currentTime = 0;
       }, 340);
     };
 
     audio.loop = true;
     audio.preload = "auto";
     audio.volume = 0;
+    audio.load();
 
     if (musicEnabled) {
-      void startMusic();
+      startMusic();
     } else {
       stopMusic();
     }
 
     const unlock = () => {
       if (!musicEnabled) return;
-      void startMusic();
+      startMusic();
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        stopMusic();
+        return;
+      }
+
+      if (musicEnabled) {
+        startMusic();
+      }
     };
 
     window.addEventListener("pointerdown", unlock, { passive: true });
     window.addEventListener("keydown", unlock);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       disposed = true;
@@ -619,6 +741,7 @@ useEffect(() => {
       cancelFade();
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [musicEnabled]);
 
@@ -638,92 +761,30 @@ useEffect(() => {
     };
   }, []);
 
-  const openPanel = (next: Exclude<Panel, "none">) => {
-    if (panelCloseTimerRef.current !== null) {
-      window.clearTimeout(panelCloseTimerRef.current);
-      panelCloseTimerRef.current = null;
-    }
-
-    setPanelClosing(false);
-    setPanel(next);
-  };
-
-  const closePanel = () => {
-    if (panel === "none" || panelClosing) return;
-
-    setPanelClosing(true);
-
-    if (panelCloseTimerRef.current !== null) {
-      window.clearTimeout(panelCloseTimerRef.current);
-    }
-
-    panelCloseTimerRef.current = window.setTimeout(() => {
-      setPanel("none");
-      setPanelClosing(false);
-      panelCloseTimerRef.current = null;
-    }, PANEL_EXIT_MS);
-  };
-
-  const markVideoLoaded = (key: string) => {
-    setLoadedVideos((prev) => {
-      if (prev[key]) return prev;
-      return { ...prev, [key]: true };
-    });
-  };
-
-  const copyEmail = async () => {
-    const email = "liamj7872@gmail.com";
-    let copied = false;
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(email);
-        copied = true;
-      } else {
-        copied = fallbackCopy(email);
-      }
-    } catch {
-      copied = fallbackCopy(email);
-    }
-
-    if (!copied) {
-      setEmailCopied(false);
-      return;
-    }
-
-    setEmailCopied(true);
-
-    if (copyTimerRef.current !== null) {
-      window.clearTimeout(copyTimerRef.current);
-    }
-
-    copyTimerRef.current = window.setTimeout(() => {
-      setEmailCopied(false);
-    }, 1200);
-  };
-
   return (
     <main className={`page-shell ${pageReady ? "ready" : "booting"}`} ref={shellRef}>
-      <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" />
+      <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" playsInline />
 
       <div className="bg-aurora aurora-layer" />
       <div className="bg-grid grid-layer" />
       <div className="bg-network network-layer" />
 
       <div className="bg-sword-wrap sword-layer" aria-hidden="true">
-        <div className="sword-aura aura-1" />
-        <div className="sword-aura aura-2" />
-        <div className="sword-ring ring-1" />
-        <div className="sword-ring ring-2" />
+        <div className="sword-stage">
+          <div className="sword-aura aura-1" />
+          <div className="sword-aura aura-2" />
+          <div className="sword-ring ring-1" />
+          <div className="sword-ring ring-2" />
 
-        <div className="sword-glow" />
-        <div className="sword">
-          <span className="blade" />
-          <span className="blade-shine" />
-          <span className="edge" />
-          <span className="guard" />
-          <span className="grip" />
-          <span className="pommel" />
+          <div className="sword-glow" />
+          <div className="sword">
+            <span className="blade" />
+            <span className="blade-shine" />
+            <span className="edge" />
+            <span className="guard" />
+            <span className="grip" />
+            <span className="pommel" />
+          </div>
         </div>
       </div>
 
@@ -739,6 +800,8 @@ useEffect(() => {
             data-dy={dot.dy}
             data-leftpct={dot.leftPct}
             data-toppct={dot.topPct}
+            data-phase={dot.phase}
+            data-size={dot.size}
             style={
               {
                 left: dot.left,
@@ -802,7 +865,6 @@ useEffect(() => {
               className="avatar"
               loading="eager"
               decoding="async"
-              fetchPriority="high"
               onError={() => {
                 setAvatarIndex((prev) => (prev < avatarSources.length - 1 ? prev + 1 : prev));
               }}
@@ -843,7 +905,7 @@ useEffect(() => {
 
           <div className="discord-callout reveal delay-3">
             <span>MAKE SURE TO JOIN DISCORD SERVER</span>
-            <a href="https://discord.gg/62nWRxRs" target="_blank" rel="noreferrer" className="discord-callout-btn">
+            <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="discord-callout-btn">
               Join Server
             </a>
           </div>
@@ -907,6 +969,7 @@ useEffect(() => {
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Search..."
                       className="search-input"
+                      aria-label="Search showcase"
                     />
                   </div>
                 </div>
@@ -1089,7 +1152,7 @@ useEffect(() => {
                     <MessageCircle className="mini" />
                     Discord
                   </a>
-                  <a href="https://discord.gg/62nWRxRs" target="_blank" rel="noreferrer" className="commission-ghost">
+                  <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="commission-ghost">
                     Server
                   </a>
                 </div>
@@ -1138,6 +1201,7 @@ useEffect(() => {
           --mx: 0;
           --my: 0;
           perspective: 1400px;
+          isolation: isolate;
         }
 
         .page-shell.booting .top-stack,
@@ -1273,6 +1337,12 @@ useEffect(() => {
         .bg-sword-wrap {
           display: grid;
           place-items: center;
+        }
+
+        .sword-stage {
+          width: 100%;
+          height: 100%;
+          transform-origin: center;
         }
 
         .sword-aura,
@@ -1440,6 +1510,7 @@ useEffect(() => {
 
         .bg-particles {
           overflow: hidden;
+          contain: layout paint;
         }
 
         .dynamic-particle {
@@ -1455,6 +1526,7 @@ useEffect(() => {
           animation-timing-function: ease-in-out;
           animation-iteration-count: infinite;
           will-change: transform, opacity;
+          transform: translate3d(0, 0, 0);
         }
 
         .top-stack {
@@ -2626,12 +2698,8 @@ useEffect(() => {
             padding-left: 16px;
           }
 
-          .sword-aura,
-          .sword-ring,
-          .sword-glow,
-          .sword {
-            transform-origin: center;
-            scale: 0.88;
+          .sword-stage {
+            transform: scale(0.88);
           }
         }
 
