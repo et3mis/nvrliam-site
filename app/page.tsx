@@ -9,8 +9,11 @@ import {
   Gamepad2,
   Mail,
   MessageCircle,
+  Music2,
   Rocket,
   Search,
+  Volume2,
+  VolumeX,
   Wrench,
   X,
 } from "lucide-react";
@@ -47,12 +50,48 @@ type ParticleDot = {
   duration: string;
   dx: number;
   dy: number;
+  lift: number;
+  blur: number;
+  scaleMin: number;
+  scaleMax: number;
+};
+
+type CSSVars = CSSProperties & {
+  "--dx"?: number | string;
+  "--dy"?: number | string;
+  "--lift"?: number | string;
+  "--blur"?: string;
+  "--scale-min"?: number | string;
+  "--scale-max"?: number | string;
+  "--opacity-base"?: number | string;
 };
 
 const DISCORD_USER_ID = "1404955716887904266";
 const DISCORD_STATUS_ENABLED = /^\d{8,25}$/.test(DISCORD_USER_ID);
+const DISCORD_POLL_MS = 30000;
+const INITIAL_BOOT_MS = 900;
+const BG_MUSIC_SRC = "/portfolio-music.mp3";
+const BG_MUSIC_VOLUME = 0.18;
 
-const avatar = "/logo.png";
+const avatarFallback = `data:image/svg+xml;utf8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+    <rect width="120" height="120" rx="60" fill="#111"/>
+    <text
+      x="50%"
+      y="54%"
+      dominant-baseline="middle"
+      text-anchor="middle"
+      fill="white"
+      font-family="Arial, sans-serif"
+      font-size="42"
+      font-weight="700"
+    >
+      LJ
+    </text>
+  </svg>
+`)}`;
+
+const avatarSources = ["/profile.png", "/logo.png", avatarFallback] as const;
 
 const skills: SkillItem[] = [
   { label: "Lua - Fluent", mark: "Lu", tone: "lua" },
@@ -83,25 +122,86 @@ const prices: PriceTier[] = [
   { title: "Full Game", usd: "$250+", robux: "71k+ R$", note: "Quote depends on scope.", icon: "game" },
 ];
 
-const particleDots: ParticleDot[] = Array.from({ length: 52 }, (_, i) => {
-  const left = 2 + ((i * 13) % 96);
-  const top = 3 + ((i * 19) % 92);
-  const size = 2 + (i % 5);
-  const opacity = Math.min(0.28 + (i % 7) * 0.1, 0.96);
-  const dx = Number((((i % 9) - 4) * 0.85).toFixed(2));
-  const dy = Number((((((i + 3) % 9) - 4) * 0.85) || 0.85).toFixed(2));
+function createParticleDots(count = 64): ParticleDot[] {
+  return Array.from({ length: count }, (_, i) => {
+    const left = 1 + ((i * 17) % 98);
+    const top = 2 + ((i * 23) % 94);
+    const size = 2 + (i % 5);
+    const opacity = Math.min(0.2 + (i % 7) * 0.09, 0.9);
+    const dx = Number((((i % 11) - 5) * (0.55 + (i % 3) * 0.18)).toFixed(2));
+    const dy = Number((((((i + 4) % 11) - 5) || 1) * (0.5 + (i % 4) * 0.16)).toFixed(2));
+    const lift = 2 + (i % 6);
+    const blur = Math.max(0, (size - 2) * 0.4);
 
-  return {
-    left: `${left}%`,
-    top: `${top}%`,
-    size,
-    opacity,
-    delay: `${(i % 10) * 0.22}s`,
-    duration: `${4.8 + (i % 7) * 0.9}s`,
-    dx,
-    dy,
-  };
-});
+    return {
+      left: `${left}%`,
+      top: `${top}%`,
+      size,
+      opacity,
+      delay: `${(i % 12) * 0.18}s`,
+      duration: `${4.8 + (i % 9) * 0.7}s`,
+      dx,
+      dy,
+      lift,
+      blur,
+      scaleMin: 0.72 + (i % 3) * 0.06,
+      scaleMax: 1.06 + (i % 4) * 0.07,
+    };
+  });
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function waitForPageLoad() {
+  if (document.readyState === "complete") return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    window.addEventListener("load", () => resolve(), { once: true });
+  });
+}
+
+function waitForFonts() {
+  if (!("fonts" in document)) return Promise.resolve();
+  return (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => undefined);
+}
+
+function preloadImage(src: string) {
+  return new Promise<void>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = src;
+  });
+}
+
+function fallbackCopy(text: string) {
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "true");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  input.style.pointerEvents = "none";
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+
+  let copied = false;
+
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+
+  document.body.removeChild(input);
+  return copied;
+}
+
+function getVideoUrl(embed: string) {
+  return embed.replace("https://streamable.com/e/", "https://streamable.com/").replace(/\?.*$/, "");
+}
 
 function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
   if (icon === "fix") return <Wrench className="mini" />;
@@ -117,14 +217,27 @@ export default function PortfolioPage() {
   const [emailCopied, setEmailCopied] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
   const [statusLoaded, setStatusLoaded] = useState(!DISCORD_STATUS_ENABLED);
+  const [pageReady, setPageReady] = useState(false);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [musicUnlocked, setMusicUnlocked] = useState(false);
+  const [avatarIndex, setAvatarIndex] = useState(0);
 
   const shellRef = useRef<HTMLDivElement | null>(null);
-  const particleRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+  const fadeFrameRef = useRef<number | null>(null);
+
+  const particleDots = useMemo(() => createParticleDots(), []);
 
   const filteredShowcases = useMemo(() => {
     const value = query.trim().toLowerCase();
     if (!value) return showcases;
-    return showcases.filter((item) => item.title.toLowerCase().includes(value));
+    return showcases.filter(
+      (item) =>
+        item.title.toLowerCase().includes(value) ||
+        item.desc.toLowerCase().includes(value)
+    );
   }, [query]);
 
   const statusText = useMemo(() => {
@@ -136,38 +249,70 @@ export default function PortfolioPage() {
   }, [discordStatus, statusLoaded]);
 
   useEffect(() => {
+    let active = true;
+
+    const boot = async () => {
+      await Promise.allSettled([
+        waitForPageLoad(),
+        waitForFonts(),
+        preloadImage("/profile.png"),
+        preloadImage("/logo.png"),
+        sleep(INITIAL_BOOT_MS),
+      ]);
+
+      if (!active) return;
+
+      window.requestAnimationFrame(() => {
+        if (active) setPageReady(true);
+      });
+    };
+
+    void boot();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
 
-    const applyParticleDrift = (mx: number, my: number) => {
-      for (const node of particleRefs.current) {
-        if (!node) continue;
+    const state = {
+      targetX: 0,
+      targetY: 0,
+      currentX: 0,
+      currentY: 0,
+      raf: 0,
+    };
 
-        const dx = Number(node.dataset.dx ?? 0);
-        const dy = Number(node.dataset.dy ?? 0);
+    const updateVars = () => {
+      state.currentX += (state.targetX - state.currentX) * 0.08;
+      state.currentY += (state.targetY - state.currentY) * 0.08;
 
-        node.style.transform = `translate3d(${mx * dx}px, ${my * dy}px, 0)`;
-      }
+      el.style.setProperty("--mx", state.currentX.toFixed(4));
+      el.style.setProperty("--my", state.currentY.toFixed(4));
+      el.style.setProperty("--pmx", (state.currentX * 14).toFixed(4));
+      el.style.setProperty("--pmy", (state.currentY * 14).toFixed(4));
+
+      state.raf = window.requestAnimationFrame(updateVars);
     };
 
     const onMove = (e: MouseEvent) => {
       const r = el.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width;
       const y = (e.clientY - r.top) / r.height;
-      const mx = (x - 0.5) * 2;
-      const my = (y - 0.5) * 2;
 
-      el.style.setProperty("--mx", String(mx));
-      el.style.setProperty("--my", String(my));
-
-      applyParticleDrift(mx * 11, my * 11);
+      state.targetX = (x - 0.5) * 2;
+      state.targetY = (y - 0.5) * 2;
     };
 
     const onLeave = () => {
-      el.style.setProperty("--mx", "0");
-      el.style.setProperty("--my", "0");
-      applyParticleDrift(0, 0);
+      state.targetX = 0;
+      state.targetY = 0;
     };
+
+    state.raf = window.requestAnimationFrame(updateVars);
 
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("mouseleave", onLeave);
@@ -175,25 +320,67 @@ export default function PortfolioPage() {
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
+      window.cancelAnimationFrame(state.raf);
     };
   }, []);
 
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = panel === "none" ? "" : "hidden";
+
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [panel]);
+
+  useEffect(() => {
+    if (panel !== "showcase") {
+      setQuery("");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 80);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [panel]);
+
+  useEffect(() => {
+    if (panel === "none") return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPanel("none");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [panel]);
 
   useEffect(() => {
     if (!DISCORD_STATUS_ENABLED) return;
 
-    let mounted = true;
+    let cancelled = false;
+    let timer = 0;
+    let controller: AbortController | null = null;
 
-    const syncDiscordStatus = async () => {
+    const poll = async () => {
+      controller?.abort();
+
+      const currentController = new AbortController();
+      controller = currentController;
+
       try {
         const res = await fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`, {
           cache: "no-store",
+          signal: currentController.signal,
         });
 
         if (!res.ok) throw new Error("Failed to fetch Discord status");
@@ -204,39 +391,178 @@ export default function PortfolioPage() {
         const nextStatus: DiscordPresence =
           raw === "online" || raw === "idle" || raw === "dnd" ? raw : "offline";
 
-        if (!mounted) return;
+        if (cancelled) return;
 
         setDiscordStatus(nextStatus);
         setStatusLoaded(true);
       } catch {
-        if (!mounted) return;
+        if (cancelled || currentController.signal.aborted) return;
 
         setDiscordStatus("offline");
         setStatusLoaded(true);
+      } finally {
+        if (!cancelled) {
+          timer = window.setTimeout(() => {
+            void poll();
+          }, DISCORD_POLL_MS);
+        }
       }
     };
 
-    syncDiscordStatus();
-    const timer = window.setInterval(syncDiscordStatus, 30000);
+    void poll();
 
     return () => {
-      mounted = false;
-      window.clearInterval(timer);
+      cancelled = true;
+      controller?.abort();
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    let disposed = false;
+    let pauseTimer: number | null = null;
+
+    const clearPauseTimer = () => {
+      if (pauseTimer !== null) {
+        window.clearTimeout(pauseTimer);
+        pauseTimer = null;
+      }
+    };
+
+    const cancelFade = () => {
+      if (fadeFrameRef.current !== null) {
+        window.cancelAnimationFrame(fadeFrameRef.current);
+        fadeFrameRef.current = null;
+      }
+    };
+
+    const fadeVolume = (from: number, to: number, duration: number) => {
+      cancelFade();
+
+      const start = performance.now();
+
+      const tick = (now: number) => {
+        if (!audio || disposed) return;
+
+        const progress = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        audio.volume = from + (to - from) * eased;
+
+        if (progress < 1) {
+          fadeFrameRef.current = window.requestAnimationFrame(tick);
+        } else {
+          fadeFrameRef.current = null;
+        }
+      };
+
+      fadeFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    const startMusic = async () => {
+      if (!musicEnabled) return;
+
+      clearPauseTimer();
+
+      try {
+        if (audio.paused) {
+          await audio.play();
+        }
+
+        setMusicUnlocked(true);
+        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 550);
+      } catch {
+        setMusicUnlocked(false);
+      }
+    };
+
+    const stopMusic = () => {
+      clearPauseTimer();
+      fadeVolume(audio.volume, 0, 320);
+
+      pauseTimer = window.setTimeout(() => {
+        if (!audio || disposed) return;
+        audio.pause();
+      }, 340);
+    };
+
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.volume = 0;
+
+    if (musicEnabled) {
+      void startMusic();
+    } else {
+      stopMusic();
+    }
+
+    const unlock = () => {
+      if (!musicEnabled) return;
+      void startMusic();
+    };
+
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+
+    return () => {
+      disposed = true;
+      clearPauseTimer();
+      cancelFade();
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, [musicEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+
+      if (fadeFrameRef.current !== null) {
+        window.cancelAnimationFrame(fadeFrameRef.current);
+      }
     };
   }, []);
 
   const copyEmail = async () => {
+    const email = "liamj7872@gmail.com";
+    let copied = false;
+
     try {
-      await navigator.clipboard.writeText("liamj7872@gmail.com");
-      setEmailCopied(true);
-      window.setTimeout(() => setEmailCopied(false), 1200);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(email);
+        copied = true;
+      } else {
+        copied = fallbackCopy(email);
+      }
     } catch {
-      setEmailCopied(false);
+      copied = fallbackCopy(email);
     }
+
+    if (!copied) {
+      setEmailCopied(false);
+      return;
+    }
+
+    setEmailCopied(true);
+
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+
+    copyTimerRef.current = window.setTimeout(() => {
+      setEmailCopied(false);
+    }, 1200);
   };
 
   return (
-    <main className="page-shell" ref={shellRef}>
+    <main className={`page-shell ${pageReady ? "ready" : "booting"}`} ref={shellRef}>
+      <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" />
+
       <div className="bg-aurora parallax" />
       <div className="bg-grid parallax" />
       <div className="bg-network parallax" />
@@ -255,31 +581,46 @@ export default function PortfolioPage() {
       <div className="bg-particles" aria-hidden="true">
         {particleDots.map((dot, index) => (
           <span
-            key={index}
-            ref={(el) => {
-              particleRefs.current[index] = el;
-            }}
+            key={`${dot.left}-${dot.top}-${index}`}
             className="particle dynamic-particle"
-            data-dx={dot.dx}
-            data-dy={dot.dy}
             style={
               {
                 left: dot.left,
                 top: dot.top,
                 width: `${dot.size}px`,
                 height: `${dot.size}px`,
-                opacity: dot.opacity,
                 animationDelay: dot.delay,
                 animationDuration: dot.duration,
-              } as CSSProperties
+                "--dx": dot.dx,
+                "--dy": dot.dy,
+                "--lift": dot.lift,
+                "--blur": `${dot.blur}px`,
+                "--scale-min": dot.scaleMin,
+                "--scale-max": dot.scaleMax,
+                "--opacity-base": dot.opacity,
+              } as CSSVars
             }
           />
         ))}
       </div>
 
+      {!pageReady && (
+        <div className="page-loader" aria-hidden="true">
+          <div className="page-loader-card">
+            <Music2 className="mini loader-icon" />
+            <span className="page-loader-text">Loading</span>
+            <span className="page-loader-dots">
+              <span />
+              <span />
+              <span />
+            </span>
+          </div>
+        </div>
+      )}
+
       <header className="top-stack reveal">
         <div className="top-center">
-          <nav className="nav-shell">
+          <nav className="nav-shell" aria-label="Main">
             <button
               type="button"
               className={`tab-btn ${panel === "none" ? "active" : ""}`}
@@ -304,7 +645,17 @@ export default function PortfolioPage() {
           </nav>
 
           <div className="top-profile">
-            <img src={avatar} alt="Profile" className="avatar" />
+            <img
+              src={avatarSources[avatarIndex]}
+              alt="Profile"
+              className="avatar"
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              onError={() => {
+                setAvatarIndex((prev) => (prev < avatarSources.length - 1 ? prev + 1 : prev));
+              }}
+            />
             <div className={`badge badge-${discordStatus}`}>
               <span className="dot" />
               {statusText}
@@ -330,15 +681,31 @@ export default function PortfolioPage() {
             <span className="status-pill">Commissions Open</span>
             <span className="status-pill">Queue 0 / 3</span>
             <span className="status-pill">Fast replies</span>
+            <button
+              type="button"
+              className={`status-pill music-pill ${musicEnabled ? "music-on" : "music-off"}`}
+              onClick={() => setMusicEnabled((prev) => !prev)}
+              aria-pressed={musicEnabled}
+            >
+              {musicEnabled ? <Volume2 className="mini" /> : <VolumeX className="mini" />}
+              {musicEnabled ? (musicUnlocked ? "Music On" : "Music Ready") : "Music Off"}
+            </button>
+          </div>
+
+          <div className="discord-callout reveal delay-3">
+            <span>MAKE SURE TO JOIN DISCORD SERVER</span>
+            <a href="https://discord.gg/62nWRxRs" target="_blank" rel="noreferrer" className="discord-callout-btn">
+              Join Server
+            </a>
           </div>
 
           <div className="stat-row reveal delay-3">
             <div className="stat-pill">
-              <strong>1M+</strong>
+              <strong>2M+</strong>
               <span>community</span>
             </div>
             <div className="stat-pill">
-              <strong>2B+</strong>
+              <strong>4B+</strong>
               <span>contributed</span>
             </div>
           </div>
@@ -369,12 +736,15 @@ export default function PortfolioPage() {
           <section
             className={`panel reveal ${panel === "showcase" ? "panel-showcase" : "panel-commission"}`}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={panel === "showcase" ? "Showcase" : "Commission pricing"}
           >
             {panel === "showcase" ? (
               <>
                 <div className="panel-head">
                   <h2>My Works</h2>
-                  <button type="button" className="close-btn" onClick={() => setPanel("none")}>
+                  <button type="button" className="close-btn" onClick={() => setPanel("none")} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -383,6 +753,7 @@ export default function PortfolioPage() {
                   <div className="search-shell">
                     <Search className="mini search-icon" />
                     <input
+                      ref={searchInputRef}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Search..."
@@ -392,22 +763,41 @@ export default function PortfolioPage() {
                 </div>
 
                 <div className="video-grid">
-                  {filteredShowcases.map((item, index) => (
-                    <article key={item.embed} className={`video-card reveal delay-${(index % 3) + 1}`}>
-                      <div className="video-frame-wrap">
-                        <iframe
-                          title={item.title}
-                          src={item.embed}
-                          className="video-frame"
-                          allow="autoplay; fullscreen"
-                          allowFullScreen
-                          loading="lazy"
-                        />
-                      </div>
-                      <h3>{item.title}</h3>
-                      <p>{item.desc}</p>
-                    </article>
-                  ))}
+                  {filteredShowcases.length > 0 ? (
+                    filteredShowcases.map((item, index) => (
+                      <article key={item.embed} className={`video-card reveal delay-${(index % 3) + 1}`}>
+                        <div className="video-frame-wrap">
+                          <iframe
+                            title={item.title}
+                            src={item.embed}
+                            className="video-frame"
+                            allow="autoplay; fullscreen; picture-in-picture"
+                            allowFullScreen
+                            loading={index < 2 ? "eager" : "lazy"}
+                            referrerPolicy="strict-origin-when-cross-origin"
+                          />
+                        </div>
+                        <h3>{item.title}</h3>
+                        <p>{item.desc}</p>
+
+                        <div className="video-actions">
+                          <a
+                            href={getVideoUrl(item.embed)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="video-open-btn"
+                          >
+                            Open Video
+                          </a>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="empty-card">
+                      <h3>No matches</h3>
+                      <p>Try a different keyword.</p>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -417,7 +807,7 @@ export default function PortfolioPage() {
                     <p className="eyebrow">Commission</p>
                     <h2>Pricing</h2>
                   </div>
-                  <button type="button" className="close-btn" onClick={() => setPanel("none")}>
+                  <button type="button" className="close-btn" onClick={() => setPanel("none")} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -542,13 +932,82 @@ export default function PortfolioPage() {
           color: #fff;
           --mx: 0;
           --my: 0;
+          --pmx: 0;
+          --pmy: 0;
           perspective: 1400px;
+        }
+
+        .page-shell.booting .top-stack,
+        .page-shell.booting .wrap {
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        .page-shell.ready .top-stack,
+        .page-shell.ready .wrap {
+          opacity: 1;
+          transition: opacity 0.35s ease;
+        }
+
+        .page-loader {
+          position: fixed;
+          inset: 0;
+          z-index: 80;
+          display: grid;
+          place-items: center;
+          background: rgba(0, 0, 0, 0.58);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+        }
+
+        .page-loader-card {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          border-radius: 999px;
+          padding: 14px 18px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.05);
+          box-shadow: 0 18px 55px rgba(0, 0, 0, 0.45);
+        }
+
+        .loader-icon {
+          color: rgba(255, 255, 255, 0.8);
+        }
+
+        .page-loader-text {
+          font-size: 14px;
+          font-weight: 800;
+          color: rgba(255, 255, 255, 0.92);
+        }
+
+        .page-loader-dots {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .page-loader-dots span {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: #fff;
+          opacity: 0.26;
+          animation: loaderPulse 0.9s ease-in-out infinite;
+        }
+
+        .page-loader-dots span:nth-child(2) {
+          animation-delay: 0.12s;
+        }
+
+        .page-loader-dots span:nth-child(3) {
+          animation-delay: 0.24s;
         }
 
         .parallax {
           transform: translate3d(calc(var(--mx) * 9px), calc(var(--my) * 7px), 0) scale(1.02);
           transform-origin: center;
-          transition: transform 110ms ease;
+          transition: transform 90ms linear;
           will-change: transform;
         }
 
@@ -694,10 +1153,19 @@ export default function PortfolioPage() {
         .dynamic-particle {
           position: absolute;
           border-radius: 999px;
-          background: rgba(255, 255, 255, 0.92);
-          box-shadow: 0 0 14px rgba(255, 255, 255, 0.32);
-          transition: transform 140ms ease;
-          animation-name: twinkle;
+          background: rgba(255, 255, 255, 0.96);
+          box-shadow:
+            0 0 10px rgba(255, 255, 255, 0.28),
+            0 0 22px rgba(255, 255, 255, 0.08);
+          filter: blur(var(--blur));
+          mix-blend-mode: screen;
+          transform: translate3d(
+              calc(var(--pmx) * var(--dx) * 1px),
+              calc(var(--pmy) * var(--dy) * 1px),
+              0
+            )
+            scale(var(--scale-min));
+          animation-name: twinkleFloat;
           animation-timing-function: ease-in-out;
           animation-iteration-count: infinite;
           will-change: transform, opacity;
@@ -906,6 +1374,23 @@ export default function PortfolioPage() {
           margin-top: 14px;
         }
 
+        .discord-callout {
+          margin-top: 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          flex-wrap: wrap;
+          padding: 12px 16px;
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.06em;
+        }
+
         .stat-row {
           margin-top: 14px;
         }
@@ -925,12 +1410,30 @@ export default function PortfolioPage() {
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.04);
           padding: 10px 14px;
-          transition: transform 0.22s ease;
+          transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
         }
 
         .status-pill {
           font-size: 12px;
           color: rgba(255, 255, 255, 0.72);
+        }
+
+        .music-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font: inherit;
+          cursor: pointer;
+          color: #fff;
+        }
+
+        .music-pill.music-on {
+          border-color: rgba(255, 255, 255, 0.14);
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .music-pill.music-off {
+          opacity: 0.7;
         }
 
         .stat-pill strong {
@@ -995,7 +1498,9 @@ export default function PortfolioPage() {
         .main-btn,
         .ghost-btn,
         .commission-cta,
-        .commission-ghost {
+        .commission-ghost,
+        .discord-callout-btn,
+        .video-open-btn {
           border-radius: 999px;
           padding: 12px 16px;
           border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1008,11 +1513,13 @@ export default function PortfolioPage() {
           color: #fff;
           text-decoration: none;
           font: inherit;
-          transition: transform 0.22s ease, background 0.22s ease, color 0.22s ease;
+          transition: transform 0.22s ease, background 0.22s ease, color 0.22s ease, border-color 0.22s ease;
         }
 
         .main-btn,
-        .commission-cta {
+        .commission-cta,
+        .discord-callout-btn,
+        .video-open-btn {
           background: #fff;
           color: #000;
           border-color: transparent;
@@ -1022,6 +1529,8 @@ export default function PortfolioPage() {
         .ghost-btn:hover,
         .commission-cta:hover,
         .commission-ghost:hover,
+        .discord-callout-btn:hover,
+        .video-open-btn:hover,
         .status-pill:hover,
         .stat-pill:hover,
         .skill-pill:hover {
@@ -1089,11 +1598,12 @@ export default function PortfolioPage() {
           justify-content: center;
           background: rgba(255, 255, 255, 0.06);
           color: rgba(255, 255, 255, 0.8);
-          transition: transform 0.22s ease;
+          transition: transform 0.22s ease, background 0.22s ease;
         }
 
         .close-btn:hover {
           transform: translateY(-2px);
+          background: rgba(255, 255, 255, 0.1);
         }
 
         .toolbar-row {
@@ -1110,6 +1620,12 @@ export default function PortfolioPage() {
           border-radius: 16px;
           border: 1px solid rgba(255, 255, 255, 0.08);
           background: rgba(255, 255, 255, 0.04);
+          transition: border-color 0.22s ease, background 0.22s ease;
+        }
+
+        .search-shell:focus-within {
+          border-color: rgba(255, 255, 255, 0.16);
+          background: rgba(255, 255, 255, 0.06);
         }
 
         .search-input {
@@ -1139,17 +1655,20 @@ export default function PortfolioPage() {
         .video-card,
         .tier-card,
         .info-card,
-        .policy-card {
+        .policy-card,
+        .empty-card {
           border-radius: 24px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.04);
           padding: 16px;
-          transition: transform 0.22s ease;
+          transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
         }
 
         .video-card:hover,
         .tier-card:hover {
           transform: translateY(-2px);
+          border-color: rgba(255, 255, 255, 0.14);
+          background: rgba(255, 255, 255, 0.05);
         }
 
         .video-frame-wrap {
@@ -1170,7 +1689,8 @@ export default function PortfolioPage() {
         .video-card h3,
         .tier-card h3,
         .info-card h3,
-        .policy-card h4 {
+        .policy-card h4,
+        .empty-card h3 {
           margin: 14px 0 0;
           font-size: 18px;
           font-weight: 900;
@@ -1179,10 +1699,23 @@ export default function PortfolioPage() {
         .video-card p,
         .tier-card p,
         .info-card li,
-        .policy-card p {
+        .policy-card p,
+        .empty-card p {
           margin: 8px 0 0;
           line-height: 1.65;
           color: rgba(255, 255, 255, 0.58);
+        }
+
+        .video-actions {
+          margin-top: 12px;
+          display: flex;
+          justify-content: flex-start;
+        }
+
+        .empty-card {
+          grid-column: 1 / -1;
+          text-align: center;
+          padding: 28px 18px;
         }
 
         .pricing-list {
@@ -1268,10 +1801,15 @@ export default function PortfolioPage() {
         .mini {
           width: 16px;
           height: 16px;
+          flex-shrink: 0;
         }
 
         .reveal {
           animation: rise 0.55s ease both;
+        }
+
+        .delay-1 {
+          animation-delay: 0.08s;
         }
 
         .delay-2 {
@@ -1290,6 +1828,18 @@ export default function PortfolioPage() {
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+
+        @keyframes loaderPulse {
+          0%,
+          100% {
+            opacity: 0.26;
+            transform: translateY(0) scale(0.8);
+          }
+          50% {
+            opacity: 1;
+            transform: translateY(-3px) scale(1.08);
           }
         }
 
@@ -1321,15 +1871,32 @@ export default function PortfolioPage() {
           }
         }
 
-        @keyframes twinkle {
+        @keyframes twinkleFloat {
           0%,
           100% {
-            opacity: 0.26;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.22);
+            opacity: calc(var(--opacity-base) * 0.5);
+            transform: translate3d(
+                calc(var(--pmx) * var(--dx) * 1px),
+                calc(var(--pmy) * var(--dy) * 1px),
+                0
+              )
+              scale(var(--scale-min));
+            box-shadow:
+              0 0 10px rgba(255, 255, 255, 0.2),
+              0 0 18px rgba(255, 255, 255, 0.06);
           }
           50% {
-            opacity: 0.98;
-            box-shadow: 0 0 18px rgba(255, 255, 255, 0.42);
+            opacity: var(--opacity-base);
+            transform: translate3d(
+                calc(var(--pmx) * var(--dx) * 1px),
+                calc(var(--pmy) * var(--dy) * 1px),
+                0
+              )
+              translateY(calc(var(--lift) * -1px))
+              scale(var(--scale-max));
+            box-shadow:
+              0 0 16px rgba(255, 255, 255, 0.34),
+              0 0 26px rgba(255, 255, 255, 0.1);
           }
         }
 
@@ -1382,6 +1949,35 @@ export default function PortfolioPage() {
           .avatar {
             width: 52px;
             height: 52px;
+          }
+
+          .panel {
+            padding: 18px;
+            border-radius: 24px;
+          }
+
+          .search-shell {
+            min-width: 100%;
+          }
+
+          .discord-callout {
+            width: 100%;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          *,
+          *::before,
+          *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+          }
+
+          .parallax,
+          .dynamic-particle {
+            transform: none !important;
           }
         }
       `}</style>
