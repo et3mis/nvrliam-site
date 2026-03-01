@@ -276,6 +276,7 @@ export default function PortfolioPage() {
   const [musicUnlocked, setMusicUnlocked] = useState(false);
   const [avatarIndex, setAvatarIndex] = useState(0);
   const [loadedVideos, setLoadedVideos] = useState<Record<string, boolean>>({});
+  const [mobileFxLite, setMobileFxLite] = useState(false);
 
   const shellRef = useRef<HTMLDivElement | null>(null);
   const particleRefs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -285,18 +286,21 @@ export default function PortfolioPage() {
   const fadeFrameRef = useRef<number | null>(null);
   const panelCloseTimerRef = useRef<number | null>(null);
 
-  const particleDots = useMemo(() => createParticleDots(84), []);
+  const particleDots = useMemo(() => createParticleDots(mobileFxLite ? 28 : 84), [mobileFxLite]);
+  const eagerShowcaseCount = mobileFxLite ? 1 : 5;
 
   const preloadTargets = useMemo(() => {
+    const showcaseLimit = mobileFxLite ? 1 : 5;
+
     const values = [
-      ...showcases.slice(0, 5).map((item) => item.embed),
-      ...showcases.slice(0, 5).map((item) => getVideoUrl(item.embed)),
-      ...bigShowcases.map((item) => item.embed),
-      ...bigShowcases.map((item) => getVideoUrl(item.embed)),
+      ...showcases.slice(0, showcaseLimit).map((item) => item.embed),
+      ...showcases.slice(0, showcaseLimit).map((item) => getVideoUrl(item.embed)),
+      ...(mobileFxLite ? [] : bigShowcases.map((item) => item.embed)),
+      ...(mobileFxLite ? [] : bigShowcases.map((item) => getVideoUrl(item.embed))),
     ];
 
     return Array.from(new Set(values));
-  }, []);
+  }, [mobileFxLite]);
 
   const openPanel = useCallback((next: Exclude<Panel, "none">) => {
     if (panelCloseTimerRef.current !== null) {
@@ -388,6 +392,25 @@ export default function PortfolioPage() {
   }, [discordStatus, statusLoaded]);
 
   useEffect(() => {
+    const updateMobileFxMode = () => {
+      const nav = navigator as Navigator & { deviceMemory?: number };
+      const isSmallScreen = window.matchMedia("(max-width: 760px)").matches;
+      const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+      const lowMemory = typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4;
+      const lowCores = typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency <= 6;
+
+      setMobileFxLite(isSmallScreen || isCoarsePointer || lowMemory || lowCores);
+    };
+
+    updateMobileFxMode();
+    window.addEventListener("resize", updateMobileFxMode, { passive: true });
+
+    return () => {
+      window.removeEventListener("resize", updateMobileFxMode);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     const boot = async () => {
@@ -464,9 +487,11 @@ export default function PortfolioPage() {
     if (!el) return;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const motionFactor = reduceMotion ? 0.32 : 1;
-    const particleFactor = reduceMotion ? 0.32 : 1;
-    const easeFactor = reduceMotion ? 0.055 : 0.095;
+
+    const desktopMotionFactor = reduceMotion ? 0.32 : 1;
+    const desktopParticleFactor = reduceMotion ? 0.32 : 1;
+    const desktopEaseFactor = reduceMotion ? 0.055 : 0.095;
+    const mobileMotionFactor = reduceMotion ? 0.1 : 0.18;
 
     const state = {
       targetX: 0,
@@ -480,7 +505,9 @@ export default function PortfolioPage() {
       top: 0,
       width: 1,
       height: 1,
-      raf: 0,
+      frameRaf: 0,
+      applyRaf: 0,
+      queued: false,
     };
 
     const updateRect = () => {
@@ -496,6 +523,22 @@ export default function PortfolioPage() {
       el.style.setProperty("--cy", `${yPercent.toFixed(2)}%`);
     };
 
+    const applyLiteMotion = () => {
+      state.queued = false;
+
+      const renderX = state.targetX * mobileMotionFactor;
+      const renderY = state.targetY * mobileMotionFactor;
+
+      el.style.setProperty("--mx", renderX.toFixed(4));
+      el.style.setProperty("--my", renderY.toFixed(4));
+    };
+
+    const queueLiteMotion = () => {
+      if (state.queued) return;
+      state.queued = true;
+      state.applyRaf = window.requestAnimationFrame(applyLiteMotion);
+    };
+
     const syncFromClientPoint = (clientX: number, clientY: number) => {
       updateRect();
 
@@ -509,6 +552,10 @@ export default function PortfolioPage() {
       state.cursorActive = true;
 
       setCursorVars((localX / state.width) * 100, (localY / state.height) * 100);
+
+      if (mobileFxLite) {
+        queueLiteMotion();
+      }
     };
 
     const resetMotion = () => {
@@ -516,14 +563,19 @@ export default function PortfolioPage() {
       state.targetY = 0;
       state.cursorActive = false;
       setCursorVars(50, 34);
+
+      if (mobileFxLite) {
+        el.style.setProperty("--mx", "0");
+        el.style.setProperty("--my", "0");
+      }
     };
 
     const frame = (now: number) => {
-      state.currentX += (state.targetX - state.currentX) * easeFactor;
-      state.currentY += (state.targetY - state.currentY) * easeFactor;
+      state.currentX += (state.targetX - state.currentX) * desktopEaseFactor;
+      state.currentY += (state.targetY - state.currentY) * desktopEaseFactor;
 
-      const renderX = state.currentX * motionFactor;
-      const renderY = state.currentY * motionFactor;
+      const renderX = state.currentX * desktopMotionFactor;
+      const renderY = state.currentY * desktopMotionFactor;
 
       el.style.setProperty("--mx", renderX.toFixed(4));
       el.style.setProperty("--my", renderY.toFixed(4));
@@ -548,8 +600,10 @@ export default function PortfolioPage() {
         const driftX = renderX * 20 * baseDx;
         const driftY = renderY * 20 * baseDy;
 
-        const ambientX = Math.sin(t * (0.46 + size * 0.022) + phase) * (2.9 + size * 0.62) * particleFactor;
-        const ambientY = Math.cos(t * (0.61 + size * 0.026) + phase) * (2.5 + size * 0.58) * particleFactor;
+        const ambientX =
+          Math.sin(t * (0.46 + size * 0.022) + phase) * (2.9 + size * 0.62) * desktopParticleFactor;
+        const ambientY =
+          Math.cos(t * (0.61 + size * 0.026) + phase) * (2.5 + size * 0.58) * desktopParticleFactor;
 
         let repelX = 0;
         let repelY = 0;
@@ -569,7 +623,7 @@ export default function PortfolioPage() {
         node.style.transform = `translate3d(${(driftX + ambientX + repelX).toFixed(2)}px, ${(driftY + ambientY + repelY).toFixed(2)}px, 0)`;
       }
 
-      state.raf = window.requestAnimationFrame(frame);
+      state.frameRaf = window.requestAnimationFrame(frame);
     };
 
     const supportsPointer = "PointerEvent" in window;
@@ -601,7 +655,12 @@ export default function PortfolioPage() {
 
     updateRect();
     setCursorVars(50, 34);
-    state.raf = window.requestAnimationFrame(frame);
+    el.style.setProperty("--mx", "0");
+    el.style.setProperty("--my", "0");
+
+    if (!mobileFxLite) {
+      state.frameRaf = window.requestAnimationFrame(frame);
+    }
 
     if (supportsPointer) {
       window.addEventListener("pointermove", handlePointerMove, { passive: true });
@@ -629,9 +688,11 @@ export default function PortfolioPage() {
       window.removeEventListener("blur", handleReset);
       window.removeEventListener("resize", handleResizeOrScroll);
       window.removeEventListener("scroll", handleResizeOrScroll);
-      window.cancelAnimationFrame(state.raf);
+
+      window.cancelAnimationFrame(state.frameRaf);
+      window.cancelAnimationFrame(state.applyRaf);
     };
-  }, []);
+  }, [mobileFxLite]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -650,6 +711,8 @@ export default function PortfolioPage() {
 
     setLoadedVideos({});
 
+    if (mobileFxLite) return;
+
     const timer = window.setTimeout(() => {
       searchInputRef.current?.focus();
     }, 140);
@@ -657,7 +720,7 @@ export default function PortfolioPage() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [panel, panelRenderKey]);
+  }, [panel, panelRenderKey, mobileFxLite]);
 
   useEffect(() => {
     if (panel === "none") return;
@@ -924,7 +987,10 @@ export default function PortfolioPage() {
   }, []);
 
   return (
-    <main className={`page-shell ${pageReady ? "ready" : "booting"}`} ref={shellRef}>
+    <main
+      className={`page-shell ${pageReady ? "ready" : "booting"} ${mobileFxLite ? "mobile-lite" : ""}`}
+      ref={shellRef}
+    >
       <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" playsInline />
 
       <div className="bg-aurora aurora-layer" />
@@ -1179,7 +1245,7 @@ export default function PortfolioPage() {
                               className="video-frame"
                               allow="autoplay; fullscreen; picture-in-picture"
                               allowFullScreen
-                              loading={index < 5 ? "eager" : "lazy"}
+                              loading={index < eagerShowcaseCount ? "eager" : "lazy"}
                               referrerPolicy="strict-origin-when-cross-origin"
                               onLoad={() => markVideoLoaded(key)}
                             />
@@ -1229,7 +1295,7 @@ export default function PortfolioPage() {
                               className="video-frame"
                               allow="autoplay; fullscreen; picture-in-picture"
                               allowFullScreen
-                              loading="eager"
+                              loading={mobileFxLite ? "lazy" : "eager"}
                               referrerPolicy="strict-origin-when-cross-origin"
                               onLoad={() => markVideoLoaded(key)}
                             />
@@ -1380,8 +1446,7 @@ export default function PortfolioPage() {
           position: relative;
           min-height: 100vh;
           overflow: hidden;
-          background:
-            radial-gradient(circle at 50% 0%, #090909 0%, #040404 34%, #000 100%);
+          background: radial-gradient(circle at 50% 0%, #090909 0%, #040404 34%, #000 100%);
           color: #fff;
           isolation: isolate;
           perspective: 1400px;
@@ -2417,7 +2482,13 @@ export default function PortfolioPage() {
           content: "";
           position: absolute;
           inset: 0;
-          background: linear-gradient(140deg, rgba(255, 255, 255, 0.025), transparent 38%, transparent 62%, rgba(255, 255, 255, 0.015));
+          background: linear-gradient(
+            140deg,
+            rgba(255, 255, 255, 0.025),
+            transparent 38%,
+            transparent 62%,
+            rgba(255, 255, 255, 0.015)
+          );
           pointer-events: none;
         }
 
@@ -2924,6 +2995,31 @@ export default function PortfolioPage() {
           }
         }
 
+        @media (max-width: 760px), (pointer: coarse) {
+          .page-shell.mobile-lite {
+            perspective: none;
+          }
+
+          .page-shell.mobile-lite .bg-beams,
+          .page-shell.mobile-lite .bg-network,
+          .page-shell.mobile-lite .bg-sword-wrap {
+            display: none;
+          }
+
+          .page-shell.mobile-lite .nav-shell,
+          .page-shell.mobile-lite .panel,
+          .page-shell.mobile-lite .page-loader {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+          }
+
+          .page-shell.mobile-lite .dynamic-particle {
+            box-shadow:
+              0 0 6px rgba(255, 255, 255, 0.18),
+              0 0 12px rgba(255, 255, 255, 0.05);
+          }
+        }
+
         @media (max-width: 760px) {
           .top-stack {
             top: 8px;
@@ -2962,21 +3058,25 @@ export default function PortfolioPage() {
           }
 
           .overlay {
-            display: block;
-            padding: 12px 12px calc(18px + env(safe-area-inset-bottom, 0px));
-            overflow-y: auto;
-            overscroll-behavior-y: contain;
-            -webkit-overflow-scrolling: touch;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+            overflow: hidden;
           }
 
           .panel {
             width: 100%;
-            max-height: none;
-            min-height: auto;
+            max-height: calc(100dvh - 24px - env(safe-area-inset-bottom, 0px));
+            min-height: 0;
             margin: 0 auto;
             border-radius: 24px;
-            padding: 18px;
-            overflow: visible;
+            padding: 18px 18px calc(28px + env(safe-area-inset-bottom, 0px));
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            touch-action: pan-y;
           }
 
           .panel-head {
@@ -3038,10 +3138,6 @@ export default function PortfolioPage() {
 
           .info-card ul {
             padding-left: 16px;
-          }
-
-          .sword-stage {
-            transform: scale(0.88);
           }
         }
 
