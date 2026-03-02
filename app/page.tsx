@@ -72,6 +72,17 @@ type ParticleDot = {
   phase: number;
 };
 
+type HomeFeature = {
+  title: string;
+  body: string;
+  icon: PriceTier["icon"] | "check";
+};
+
+type WorkflowStep = {
+  title: string;
+  body: string;
+};
+
 type CSSVars = CSSProperties & {
   "--blur"?: string;
   "--opacity-base"?: number | string;
@@ -82,16 +93,20 @@ const DISCORD_STATUS_ENABLED = /^\d{8,25}$/.test(DISCORD_USER_ID);
 const DISCORD_POLL_MS = 30000;
 
 const INITIAL_BOOT_MS = 900;
-const PANEL_EXIT_MS = 240;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
 const BG_MUSIC_VOLUME = 0.18;
 const EMAIL_ADDRESS = "liamj7872@gmail.com";
 const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
-const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v2";
+const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v4";
+
+const ASSET_VERSION = "20260301";
+const PROFILE_IMAGE_SRC = `/profile.png?v=${ASSET_VERSION}`;
+const LOGO_IMAGE_SRC = `/logo.png?v=${ASSET_VERSION}`;
 
 const avatarFallback = `data:image/svg+xml;utf8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
-    <rect width="120" height="120" rx="60" fill="#111"/>
+    <rect width="120" height="120" rx="60" fill="#0b0b0b"/>
+    <circle cx="60" cy="60" r="58" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="2"/>
     <text
       x="50%"
       y="54%"
@@ -107,7 +122,7 @@ const avatarFallback = `data:image/svg+xml;utf8,${encodeURIComponent(`
   </svg>
 `)}`;
 
-const avatarSources = ["/profile.png", "/logo.png", avatarFallback] as const;
+const avatarSources = [PROFILE_IMAGE_SRC, LOGO_IMAGE_SRC, avatarFallback] as const;
 
 const skills: SkillItem[] = [
   { label: "Lua - Fluent", mark: "Lu", tone: "lua" },
@@ -144,6 +159,44 @@ const prices: PriceTier[] = [
   { title: "Gameplay Features", usd: "$35–$80", robux: "10k–23k R$", note: "Mid-size systems.", icon: "play" },
   { title: "Full Systems", usd: "$80–$180", robux: "23k–51k R$", note: "Bigger polished systems.", icon: "full" },
   { title: "Full Game", usd: "$250+", robux: "71k+ R$", note: "Quote depends on scope.", icon: "game" },
+];
+
+const homeFeatures: HomeFeature[] = [
+  {
+    title: "Stable Systems",
+    body: "Built to survive spam input, edge cases, respawns, and real player usage instead of only working in tests.",
+    icon: "full",
+  },
+  {
+    title: "Clean Structure",
+    body: "Organized logic, readable scripts, and cleaner integration so your project stays easy to expand later.",
+    icon: "mini",
+  },
+  {
+    title: "Gameplay Polish",
+    body: "Smooth feedback, better presentation, and details that make systems feel premium in-game.",
+    icon: "play",
+  },
+  {
+    title: "Long-Term Value",
+    body: "I fix root problems instead of stacking messy patches that break later.",
+    icon: "check",
+  },
+];
+
+const workflowSteps: WorkflowStep[] = [
+  {
+    title: "Plan",
+    body: "Clear scope first so features stay focused and do not spiral into a mess.",
+  },
+  {
+    title: "Build",
+    body: "Systems are written to stay modular, clean, and easy to maintain.",
+  },
+  {
+    title: "Stress Test",
+    body: "I think through spam, respawn, timing, and failure cases before calling it done.",
+  },
 ];
 
 function createParticleDots(count = 84): ParticleDot[] {
@@ -195,6 +248,7 @@ function waitForFonts() {
 function preloadImage(src: string) {
   return new Promise<void>((resolve) => {
     const img = new Image();
+    img.decoding = "async";
     img.onload = () => resolve();
     img.onerror = () => resolve();
     img.src = src;
@@ -391,11 +445,17 @@ function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
   return <Rocket className="mini" />;
 }
 
+function FeatureIcon({ icon }: { icon: HomeFeature["icon"] }) {
+  if (icon === "check") return <Check className="mini" />;
+  if (icon === "fix") return <Wrench className="mini" />;
+  if (icon === "mini") return <Boxes className="mini" />;
+  if (icon === "play") return <Gamepad2 className="mini" />;
+  if (icon === "full") return <Cpu className="mini" />;
+  return <Rocket className="mini" />;
+}
+
 export default function PortfolioPage() {
   const [panel, setPanel] = useState<Panel>("none");
-  const [activeTab, setActiveTab] = useState<NavTab>("home");
-  const [panelClosing, setPanelClosing] = useState(false);
-  const [panelRenderKey, setPanelRenderKey] = useState(0);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [emailCopied, setEmailCopied] = useState(false);
@@ -415,11 +475,11 @@ export default function PortfolioPage() {
   const lastFocusedRef = useRef<HTMLElement | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const fadeFrameRef = useRef<number | null>(null);
-  const panelCloseTimerRef = useRef<number | null>(null);
 
   const reduceMotion = usePrefersReducedMotion();
   const pageVisible = usePageVisible();
   const modalOpen = panel !== "none";
+  const activeTab: NavTab = panel === "none" ? "home" : panel;
 
   const particleDots = useMemo(() => createParticleDots(mobileFxLite ? 28 : 84), [mobileFxLite]);
   const eagerShowcaseCount = mobileFxLite ? 1 : 4;
@@ -438,35 +498,12 @@ export default function PortfolioPage() {
   }, [mobileFxLite]);
 
   const openPanel = useCallback((next: Exclude<Panel, "none">) => {
-    if (panelCloseTimerRef.current !== null) {
-      window.clearTimeout(panelCloseTimerRef.current);
-      panelCloseTimerRef.current = null;
-    }
-
-    setActiveTab(next);
-    setPanelClosing(false);
     setPanel(next);
-    setPanelRenderKey((prev) => prev + 1);
   }, []);
 
-  const showHome = useCallback(() => {
-    if (panelCloseTimerRef.current !== null) {
-      window.clearTimeout(panelCloseTimerRef.current);
-      panelCloseTimerRef.current = null;
-    }
-
-    setActiveTab("home");
-
-    if (panel === "none" || panelClosing) return;
-
-    setPanelClosing(true);
-
-    panelCloseTimerRef.current = window.setTimeout(() => {
-      setPanel("none");
-      setPanelClosing(false);
-      panelCloseTimerRef.current = null;
-    }, PANEL_EXIT_MS);
-  }, [panel, panelClosing]);
+  const closePanel = useCallback(() => {
+    setPanel("none");
+  }, []);
 
   const copyEmail = useCallback(async () => {
     let copied = false;
@@ -543,8 +580,8 @@ export default function PortfolioPage() {
       await Promise.allSettled([
         waitForPageLoad(),
         waitForFonts(),
-        preloadImage("/profile.png"),
-        preloadImage("/logo.png"),
+        preloadImage(PROFILE_IMAGE_SRC),
+        preloadImage(LOGO_IMAGE_SRC),
         preloadAudio(BG_MUSIC_SRC),
         sleep(INITIAL_BOOT_MS),
       ]);
@@ -602,12 +639,10 @@ export default function PortfolioPage() {
 
     addLink({ rel: "preconnect", href: "https://streamable.com", crossOrigin: "anonymous" });
     addLink({ rel: "preconnect", href: "https://api.lanyard.rest", crossOrigin: "anonymous" });
-    addLink({ rel: "preconnect", href: "https://discord.gg", crossOrigin: "anonymous" });
-    addLink({ rel: "preconnect", href: "https://discord.com", crossOrigin: "anonymous" });
     addLink({ rel: "dns-prefetch", href: "https://streamable.com" });
     addLink({ rel: "dns-prefetch", href: "https://api.lanyard.rest" });
-    addLink({ rel: "preload", href: "/profile.png", as: "image" });
-    addLink({ rel: "preload", href: "/logo.png", as: "image" });
+    addLink({ rel: "preload", href: PROFILE_IMAGE_SRC, as: "image" });
+    addLink({ rel: "preload", href: LOGO_IMAGE_SRC, as: "image" });
     addLink({ rel: "preload", href: BG_MUSIC_SRC, as: "audio" });
 
     prefetchTimer = window.setTimeout(() => {
@@ -865,12 +900,12 @@ export default function PortfolioPage() {
 
     const timer = window.setTimeout(() => {
       searchInputRef.current?.focus();
-    }, 130);
+    }, 120);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [panel, panelRenderKey, mobileFxLite]);
+  }, [panel, mobileFxLite]);
 
   useEffect(() => {
     if (panel === "none") return;
@@ -892,7 +927,7 @@ export default function PortfolioPage() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        showHome();
+        closePanel();
         return;
       }
 
@@ -943,7 +978,7 @@ export default function PortfolioPage() {
         lastFocusedRef.current.focus();
       }
     };
-  }, [panel, showHome]);
+  }, [panel, closePanel]);
 
   useEffect(() => {
     if (!DISCORD_STATUS_ENABLED) return;
@@ -1179,10 +1214,6 @@ export default function PortfolioPage() {
       if (fadeFrameRef.current !== null) {
         window.cancelAnimationFrame(fadeFrameRef.current);
       }
-
-      if (panelCloseTimerRef.current !== null) {
-        window.clearTimeout(panelCloseTimerRef.current);
-      }
     };
   }, []);
 
@@ -1269,7 +1300,7 @@ export default function PortfolioPage() {
             <button
               type="button"
               className={`tab-btn ${activeTab === "home" ? "is-active" : ""}`}
-              onClick={showHome}
+              onClick={closePanel}
             >
               Home
             </button>
@@ -1319,6 +1350,7 @@ export default function PortfolioPage() {
 
           <p className="hero-copy reveal delay-2">
             I build Roblox systems that stay organized, perform well, and hold up under real use.
+            Smooth presentation, stable logic, and code that does not fall apart later.
           </p>
 
           <div className="status-row reveal delay-2">
@@ -1382,15 +1414,36 @@ export default function PortfolioPage() {
               </span>
             ))}
           </div>
+
+          <div className="feature-grid reveal delay-3">
+            {homeFeatures.map((item) => (
+              <article key={item.title} className="feature-card">
+                <div className="feature-icon">
+                  <FeatureIcon icon={item.icon} />
+                </div>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="workflow-grid reveal delay-3">
+            {workflowSteps.map((step, index) => (
+              <article key={step.title} className="workflow-card">
+                <span className="workflow-num">0{index + 1}</span>
+                <h3>{step.title}</h3>
+                <p>{step.body}</p>
+              </article>
+            ))}
+          </div>
         </section>
       </div>
 
       {panel !== "none" && (
-        <div className={`overlay ${panelClosing ? "overlay-closing" : "overlay-open"}`} onClick={showHome}>
+        <div className="overlay" onClick={closePanel}>
           <section
-            key={`${panel}-${panelRenderKey}`}
             ref={panelRef}
-            className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} ${panelClosing ? "panel-closing" : "panel-opening"}`}
+            className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} panel-opening`}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1405,7 +1458,7 @@ export default function PortfolioPage() {
                     <p className="eyebrow">Portfolio</p>
                     <h2>Showcase</h2>
                   </div>
-                  <button type="button" className="close-btn" onClick={showHome} aria-label="Close">
+                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -1500,7 +1553,7 @@ export default function PortfolioPage() {
                     <p className="eyebrow">Commission</p>
                     <h2>Commission Me</h2>
                   </div>
-                  <button type="button" className="close-btn" onClick={showHome} aria-label="Close">
+                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
                     <X className="mini" />
                   </button>
                 </div>
@@ -1674,8 +1727,12 @@ export default function PortfolioPage() {
           box-shadow: 0 18px 55px rgba(0, 0, 0, 0.45);
         }
 
-        .loader-icon {
-          color: rgba(255, 255, 255, 0.8);
+        .loader-icon,
+        .search-icon,
+        .tier-icon,
+        .policy-icon,
+        .feature-icon {
+          color: rgba(255, 255, 255, 0.85);
         }
 
         .page-loader-text {
@@ -1777,8 +1834,8 @@ export default function PortfolioPage() {
         .bg-depth {
           background:
             radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.06), transparent 20%),
-            radial-gradient(circle at 18% 38%, rgba(129, 140, 248, 0.08), transparent 22%),
-            radial-gradient(circle at 82% 32%, rgba(244, 114, 182, 0.06), transparent 20%);
+            radial-gradient(circle at 18% 38%, rgba(255, 255, 255, 0.04), transparent 22%),
+            radial-gradient(circle at 82% 32%, rgba(255, 255, 255, 0.035), transparent 20%);
           opacity: 0.9;
         }
 
@@ -1834,7 +1891,7 @@ export default function PortfolioPage() {
           height: 860px;
           border-radius: 999px;
           filter: blur(42px);
-          opacity: 0.26;
+          opacity: 0.24;
           mix-blend-mode: screen;
         }
 
@@ -1842,7 +1899,7 @@ export default function PortfolioPage() {
           background: linear-gradient(
             180deg,
             rgba(255, 255, 255, 0.06),
-            rgba(129, 140, 248, 0.18),
+            rgba(255, 255, 255, 0.11),
             rgba(255, 255, 255, 0.03)
           );
           animation: animeAuraOne 3.8s ease-in-out infinite;
@@ -1851,8 +1908,8 @@ export default function PortfolioPage() {
         .aura-2 {
           background: linear-gradient(
             180deg,
-            rgba(255, 255, 255, 0.04),
-            rgba(244, 114, 182, 0.12),
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.08),
             rgba(255, 255, 255, 0.02)
           );
           animation: animeAuraTwo 4.6s ease-in-out infinite;
@@ -2108,27 +2165,27 @@ export default function PortfolioPage() {
         }
 
         .badge-online {
-          border: 1px solid rgba(74, 222, 128, 0.2);
-          background: rgba(74, 222, 128, 0.08);
-          color: #4ade80;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: rgba(255, 255, 255, 0.07);
+          color: #ffffff;
         }
 
         .badge-idle {
-          border: 1px solid rgba(250, 204, 21, 0.2);
-          background: rgba(250, 204, 21, 0.08);
-          color: #facc15;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          background: rgba(255, 255, 255, 0.055);
+          color: rgba(255, 255, 255, 0.88);
         }
 
         .badge-dnd {
-          border: 1px solid rgba(248, 113, 113, 0.2);
-          background: rgba(248, 113, 113, 0.08);
-          color: #f87171;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.045);
+          color: rgba(255, 255, 255, 0.8);
         }
 
         .badge-offline {
-          border: 1px solid rgba(161, 161, 170, 0.18);
-          background: rgba(161, 161, 170, 0.08);
-          color: #d4d4d8;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.035);
+          color: rgba(255, 255, 255, 0.72);
         }
 
         .dot {
@@ -2137,23 +2194,16 @@ export default function PortfolioPage() {
           border-radius: 999px;
         }
 
-        .badge-online .dot {
-          background: #4ade80;
-          box-shadow: 0 0 12px rgba(74, 222, 128, 0.45);
-        }
-
-        .badge-idle .dot {
-          background: #facc15;
-          box-shadow: 0 0 12px rgba(250, 204, 21, 0.45);
-        }
-
+        .badge-online .dot,
+        .badge-idle .dot,
         .badge-dnd .dot {
-          background: #f87171;
-          box-shadow: 0 0 12px rgba(248, 113, 113, 0.45);
+          background: #ffffff;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.28);
         }
 
         .badge-offline .dot {
-          background: #a1a1aa;
+          background: rgba(255, 255, 255, 0.5);
+          box-shadow: none;
         }
 
         .wrap {
@@ -2170,7 +2220,7 @@ export default function PortfolioPage() {
 
         .hero {
           width: 100%;
-          max-width: 960px;
+          max-width: 1020px;
           text-align: center;
         }
 
@@ -2194,7 +2244,7 @@ export default function PortfolioPage() {
         .hero-accent {
           display: block;
           margin-top: 10px;
-          background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.6));
+          background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.62));
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
@@ -2206,7 +2256,7 @@ export default function PortfolioPage() {
 
         .hero-copy {
           margin: 16px auto 0;
-          max-width: 680px;
+          max-width: 720px;
           font-size: 15px;
           line-height: 1.75;
           color: rgba(255, 255, 255, 0.56);
@@ -2331,32 +2381,8 @@ export default function PortfolioPage() {
           font-size: 12px;
           font-weight: 820;
           color: #f5f5f5;
-          border-color: rgba(255, 255, 255, 0.08);
-        }
-
-        .skill-pill.tone-lua {
-          background: rgba(59, 130, 246, 0.14);
-          border-color: rgba(59, 130, 246, 0.28);
-        }
-
-        .skill-pill.tone-js {
-          background: rgba(234, 179, 8, 0.14);
-          border-color: rgba(234, 179, 8, 0.28);
-        }
-
-        .skill-pill.tone-cpp {
-          background: rgba(147, 51, 234, 0.14);
-          border-color: rgba(147, 51, 234, 0.28);
-        }
-
-        .skill-pill.tone-cs {
-          background: rgba(16, 185, 129, 0.14);
-          border-color: rgba(16, 185, 129, 0.28);
-        }
-
-        .skill-pill.tone-py {
-          background: rgba(249, 115, 22, 0.14);
-          border-color: rgba(249, 115, 22, 0.28);
+          background: rgba(255, 255, 255, 0.05);
+          border-color: rgba(255, 255, 255, 0.12);
         }
 
         .skill-mark {
@@ -2369,29 +2395,28 @@ export default function PortfolioPage() {
           font-size: 10px;
           font-weight: 950;
           letter-spacing: 0.04em;
-          color: #fff;
+          color: #111;
           flex-shrink: 0;
         }
 
         .skill-mark.lua {
-          background: linear-gradient(135deg, #2563eb, #60a5fa);
+          background: linear-gradient(135deg, #ffffff, #9f9f9f);
         }
 
         .skill-mark.js {
-          background: linear-gradient(135deg, #ca8a04, #fde047);
-          color: #111;
+          background: linear-gradient(135deg, #f2f2f2, #8c8c8c);
         }
 
         .skill-mark.cpp {
-          background: linear-gradient(135deg, #7c3aed, #c084fc);
+          background: linear-gradient(135deg, #e8e8e8, #7a7a7a);
         }
 
         .skill-mark.cs {
-          background: linear-gradient(135deg, #059669, #34d399);
+          background: linear-gradient(135deg, #dddddd, #6d6d6d);
         }
 
         .skill-mark.py {
-          background: linear-gradient(135deg, #ea580c, #fb923c);
+          background: linear-gradient(135deg, #d2d2d2, #5f5f5f);
         }
 
         .main-btn,
@@ -2476,25 +2501,109 @@ export default function PortfolioPage() {
           box-shadow: 0 14px 34px rgba(255, 255, 255, 0.12);
         }
 
-        .overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 40;
+        .feature-grid,
+        .workflow-grid {
           display: grid;
-          place-items: center;
-          padding: 24px;
-          background: rgba(0, 0, 0, 0.9);
-          backdrop-filter: blur(18px);
-          -webkit-backdrop-filter: blur(18px);
+          gap: 14px;
+          margin-top: 22px;
         }
 
-        .overlay-open {
-          animation: overlayIn 0.24s ease both;
+        .feature-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .overlay-closing {
-          animation: overlayOut 0.2s ease both;
+        .workflow-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
+
+        .feature-card,
+        .workflow-card {
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          padding: 18px;
+          position: relative;
+          overflow: hidden;
+          text-align: left;
+          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+        }
+
+        .feature-card::before,
+        .workflow-card::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(
+            140deg,
+            rgba(255, 255, 255, 0.025),
+            transparent 38%,
+            transparent 62%,
+            rgba(255, 255, 255, 0.015)
+          );
+          pointer-events: none;
+        }
+
+        .feature-icon {
+          width: 34px;
+          height: 34px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 255, 255, 0.08);
+          position: relative;
+          z-index: 1;
+        }
+
+        .feature-card h3,
+        .workflow-card h3 {
+          margin: 14px 0 0;
+          font-size: 18px;
+          font-weight: 900;
+          position: relative;
+          z-index: 1;
+        }
+
+        .feature-card p,
+        .workflow-card p {
+          margin: 8px 0 0;
+          line-height: 1.7;
+          color: rgba(255, 255, 255, 0.58);
+          position: relative;
+          z-index: 1;
+        }
+
+        .workflow-num {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 44px;
+          height: 28px;
+          border-radius: 999px;
+          padding: 0 10px;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          color: rgba(255, 255, 255, 0.9);
+          background: rgba(255, 255, 255, 0.07);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          position: relative;
+          z-index: 1;
+        }
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 88px 24px 24px;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: overlayIn 0.2s ease both;
+}
 
         .panel {
           position: relative;
@@ -2530,11 +2639,7 @@ export default function PortfolioPage() {
         }
 
         .panel-opening {
-          animation: panelIn 0.34s cubic-bezier(0.18, 0.86, 0.24, 1) both;
-        }
-
-        .panel-closing {
-          animation: panelOut 0.22s ease both;
+          animation: panelIn 0.24s cubic-bezier(0.18, 0.86, 0.24, 1) both;
         }
 
         .panel-head {
@@ -2640,11 +2745,6 @@ export default function PortfolioPage() {
           color: rgba(255, 255, 255, 0.38);
         }
 
-        .search-icon {
-          color: rgba(255, 255, 255, 0.4);
-          flex-shrink: 0;
-        }
-
         .video-grid {
           position: relative;
           z-index: 1;
@@ -2696,7 +2796,9 @@ export default function PortfolioPage() {
         .tier-card:hover,
         .info-card:hover,
         .policy-card:hover,
-        .big-showcase-card:hover {
+        .big-showcase-card:hover,
+        .feature-card:hover,
+        .workflow-card:hover {
           transform: translateY(-2px);
           border-color: rgba(255, 255, 255, 0.14);
           background: rgba(255, 255, 255, 0.05);
@@ -2878,7 +2980,6 @@ export default function PortfolioPage() {
           align-items: center;
           justify-content: center;
           background: rgba(255, 255, 255, 0.08);
-          color: rgba(255, 255, 255, 0.85);
           flex-shrink: 0;
         }
 
@@ -2989,34 +3090,14 @@ export default function PortfolioPage() {
           }
         }
 
-        @keyframes overlayOut {
-          from {
-            opacity: 1;
-          }
-          to {
-            opacity: 0;
-          }
-        }
-
         @keyframes panelIn {
           from {
             opacity: 0;
-            transform: translateY(18px) scale(0.972);
+            transform: translateY(16px) scale(0.985);
           }
           to {
             opacity: 1;
             transform: translateY(0) scale(1);
-          }
-        }
-
-        @keyframes panelOut {
-          from {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          to {
-            opacity: 0;
-            transform: translateY(10px) scale(0.988);
           }
         }
 
@@ -3187,7 +3268,9 @@ export default function PortfolioPage() {
           .video-grid,
           .commission-grid,
           .policy-grid,
-          .big-showcase-card {
+          .big-showcase-card,
+          .workflow-grid,
+          .feature-grid {
             grid-template-columns: 1fr;
           }
 
@@ -3258,50 +3341,28 @@ export default function PortfolioPage() {
             height: 52px;
           }
 
-          .overlay {
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
-            overflow: hidden;
-          }
+@media (max-width: 760px) {
+  .overlay {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 76px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+  }
 
-          .panel {
-            width: 100%;
-            max-height: calc(100dvh - 24px - env(safe-area-inset-bottom, 0px));
-            min-height: 0;
-            margin: 0 auto;
-            border-radius: 24px;
-            padding: 18px 18px calc(28px + env(safe-area-inset-bottom, 0px));
-            overflow-y: auto;
-            overflow-x: hidden;
-            -webkit-overflow-scrolling: touch;
-            touch-action: pan-y;
-          }
-
-          .panel-head {
-            align-items: flex-start;
-          }
-
-          .toolbar-row {
-            justify-content: stretch;
-          }
-
-          .search-shell {
-            min-width: 100%;
-            max-width: 100%;
-          }
-
-          .video-card,
-          .tier-card,
-          .info-card,
-          .policy-card,
-          .empty-card,
-          .big-showcase-card {
-            border-radius: 20px;
-            padding: 14px;
-          }
-        }
+  .panel {
+    width: 100%;
+    max-height: calc(100dvh - 88px - env(safe-area-inset-bottom, 0px));
+    min-height: 0;
+    margin: 0 auto;
+    border-radius: 24px;
+    padding: 18px 18px calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+}
 
         @media (max-width: 520px) {
           .top-center {
@@ -3359,7 +3420,9 @@ export default function PortfolioPage() {
           .tier-card:hover,
           .info-card:hover,
           .policy-card:hover,
-          .big-showcase-card:hover {
+          .big-showcase-card:hover,
+          .feature-card:hover,
+          .workflow-card:hover {
             transform: none;
             box-shadow: none;
           }
