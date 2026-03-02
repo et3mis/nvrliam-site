@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   ArrowUpRight,
   Boxes,
@@ -79,6 +87,7 @@ const BG_MUSIC_SRC = "/portfolio-music.mp3";
 const BG_MUSIC_VOLUME = 0.18;
 const EMAIL_ADDRESS = "liamj7872@gmail.com";
 const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
+const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v2";
 
 const avatarFallback = `data:image/svg+xml;utf8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
@@ -254,6 +263,126 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(media.matches);
+
+    update();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  return reduced;
+}
+
+function usePageVisible() {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const update = () => setVisible(!document.hidden);
+    update();
+
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  return visible;
+}
+
+function useInViewOnce<T extends Element>(enabled: boolean) {
+  const ref = useRef<T | null>(null);
+  const [inView, setInView] = useState(!enabled);
+
+  useEffect(() => {
+    if (!enabled) {
+      setInView(true);
+      return;
+    }
+
+    if (inView) return;
+
+    const node = ref.current;
+    if (!node) return;
+
+    if (!("IntersectionObserver" in window)) {
+      setInView(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0);
+        if (hit) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "280px 0px" },
+    );
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [enabled, inView]);
+
+  return { ref, inView };
+}
+
+function VideoEmbed({
+  title,
+  src,
+  eager,
+}: {
+  title: string;
+  src: string;
+  eager: boolean;
+}) {
+  const { ref, inView } = useInViewOnce<HTMLDivElement>(!eager);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+  }, [src]);
+
+  const shouldMount = eager || inView;
+
+  return (
+    <div ref={ref} className={`video-frame-shell ${loaded ? "is-loaded" : ""}`}>
+      <div className="video-skeleton" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+
+      {shouldMount ? (
+        <iframe
+          title={title}
+          src={src}
+          className="video-frame"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+          loading={eager ? "eager" : "lazy"}
+          referrerPolicy="strict-origin-when-cross-origin"
+          onLoad={() => setLoaded(true)}
+        />
+      ) : (
+        <div className="video-placeholder" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
 function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
   if (icon === "fix") return <Wrench className="mini" />;
   if (icon === "mini") return <Boxes className="mini" />;
@@ -268,6 +397,7 @@ export default function PortfolioPage() {
   const [panelClosing, setPanelClosing] = useState(false);
   const [panelRenderKey, setPanelRenderKey] = useState(0);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [emailCopied, setEmailCopied] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
   const [statusLoaded, setStatusLoaded] = useState(!DISCORD_STATUS_ENABLED);
@@ -275,19 +405,24 @@ export default function PortfolioPage() {
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [musicUnlocked, setMusicUnlocked] = useState(false);
   const [avatarIndex, setAvatarIndex] = useState(0);
-  const [loadedVideos, setLoadedVideos] = useState<Record<string, boolean>>({});
   const [mobileFxLite, setMobileFxLite] = useState(false);
 
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
   const particleRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const fadeFrameRef = useRef<number | null>(null);
   const panelCloseTimerRef = useRef<number | null>(null);
 
+  const reduceMotion = usePrefersReducedMotion();
+  const pageVisible = usePageVisible();
+  const modalOpen = panel !== "none";
+
   const particleDots = useMemo(() => createParticleDots(mobileFxLite ? 28 : 84), [mobileFxLite]);
-  const eagerShowcaseCount = mobileFxLite ? 1 : 5;
+  const eagerShowcaseCount = mobileFxLite ? 1 : 4;
 
   const preloadTargets = useMemo(() => {
     const showcaseLimit = mobileFxLite ? 1 : 5;
@@ -322,9 +457,7 @@ export default function PortfolioPage() {
 
     setActiveTab("home");
 
-    if (panel === "none" || panelClosing) {
-      return;
-    }
+    if (panel === "none" || panelClosing) return;
 
     setPanelClosing(true);
 
@@ -334,13 +467,6 @@ export default function PortfolioPage() {
       panelCloseTimerRef.current = null;
     }, PANEL_EXIT_MS);
   }, [panel, panelClosing]);
-
-  const markVideoLoaded = useCallback((key: string) => {
-    setLoadedVideos((prev) => {
-      if (prev[key]) return prev;
-      return { ...prev, [key]: true };
-    });
-  }, []);
 
   const copyEmail = useCallback(async () => {
     let copied = false;
@@ -373,7 +499,7 @@ export default function PortfolioPage() {
   }, []);
 
   const filteredShowcases = useMemo(() => {
-    const value = query.trim().toLowerCase();
+    const value = deferredQuery.trim().toLowerCase();
     if (!value) return showcases;
 
     return showcases.filter(
@@ -381,7 +507,7 @@ export default function PortfolioPage() {
         item.title.toLowerCase().includes(value) ||
         item.desc.toLowerCase().includes(value),
     );
-  }, [query]);
+  }, [deferredQuery]);
 
   const statusText = useMemo(() => {
     if (!statusLoaded) return "Checking status...";
@@ -440,7 +566,22 @@ export default function PortfolioPage() {
   }, []);
 
   useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(MUSIC_STORAGE_KEY);
+      if (saved === "0") setMusicEnabled(false);
+      if (saved === "1") setMusicEnabled(true);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MUSIC_STORAGE_KEY, musicEnabled ? "1" : "0");
+    } catch {}
+  }, [musicEnabled]);
+
+  useEffect(() => {
     const links: HTMLLinkElement[] = [];
+    let prefetchTimer = 0;
 
     const addLink = (props: {
       rel: string;
@@ -469,11 +610,15 @@ export default function PortfolioPage() {
     addLink({ rel: "preload", href: "/logo.png", as: "image" });
     addLink({ rel: "preload", href: BG_MUSIC_SRC, as: "audio" });
 
-    for (const href of preloadTargets) {
-      addLink({ rel: "prefetch", href });
-    }
+    prefetchTimer = window.setTimeout(() => {
+      for (const href of preloadTargets) {
+        addLink({ rel: "prefetch", href });
+      }
+    }, 180);
 
     return () => {
+      window.clearTimeout(prefetchTimer);
+
       for (const link of links) {
         if (link.parentNode) {
           link.parentNode.removeChild(link);
@@ -486,12 +631,10 @@ export default function PortfolioPage() {
     const el = shellRef.current;
     if (!el) return;
 
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const desktopMotionFactor = reduceMotion ? 0.32 : 1;
-    const desktopParticleFactor = reduceMotion ? 0.32 : 1;
-    const desktopEaseFactor = reduceMotion ? 0.055 : 0.095;
-    const mobileMotionFactor = reduceMotion ? 0.1 : 0.18;
+    const desktopMotionFactor = reduceMotion ? 0.22 : 1;
+    const desktopParticleFactor = reduceMotion ? 0.26 : 1;
+    const desktopEaseFactor = reduceMotion ? 0.04 : 0.095;
+    const mobileMotionFactor = reduceMotion ? 0.08 : 0.18;
 
     const state = {
       targetX: 0,
@@ -582,7 +725,7 @@ export default function PortfolioPage() {
 
       const t = now * 0.001;
       const repelRadius = Math.min(190, Math.max(120, state.width * 0.15));
-      const repelStrength = reduceMotion ? 12 : 42;
+      const repelStrength = reduceMotion ? 10 : 42;
 
       for (const node of particleRefs.current) {
         if (!node) continue;
@@ -658,7 +801,7 @@ export default function PortfolioPage() {
     el.style.setProperty("--mx", "0");
     el.style.setProperty("--my", "0");
 
-    if (!mobileFxLite) {
+    if (!mobileFxLite && pageVisible) {
       state.frameRaf = window.requestAnimationFrame(frame);
     }
 
@@ -692,16 +835,25 @@ export default function PortfolioPage() {
       window.cancelAnimationFrame(state.frameRaf);
       window.cancelAnimationFrame(state.applyRaf);
     };
-  }, [mobileFxLite]);
+  }, [mobileFxLite, pageVisible, reduceMotion]);
 
   useEffect(() => {
+    if (!modalOpen) return;
+
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = panel === "none" ? "" : "hidden";
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
 
     return () => {
       document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
     };
-  }, [panel]);
+  }, [modalOpen]);
 
   useEffect(() => {
     if (panel !== "showcase") {
@@ -709,13 +861,11 @@ export default function PortfolioPage() {
       return;
     }
 
-    setLoadedVideos({});
-
     if (mobileFxLite) return;
 
     const timer = window.setTimeout(() => {
       searchInputRef.current?.focus();
-    }, 140);
+    }, 130);
 
     return () => {
       window.clearTimeout(timer);
@@ -725,16 +875,73 @@ export default function PortfolioPage() {
   useEffect(() => {
     if (panel === "none") return;
 
+    lastFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const root = panelRef.current;
+    const selector =
+      'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const focusTimer = window.setTimeout(() => {
+      const focusTarget =
+        (panel === "showcase" ? searchInputRef.current : null) ??
+        root?.querySelector<HTMLElement>(selector);
+      focusTarget?.focus();
+    }, 40);
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
         showHome();
+        return;
+      }
+
+      if (
+        e.key === "/" &&
+        panel === "showcase" &&
+        document.activeElement !== searchInputRef.current
+      ) {
+        const tag = (document.activeElement as HTMLElement | null)?.tagName?.toLowerCase();
+        const isTypingField =
+          tag === "input" || tag === "textarea" || (document.activeElement as HTMLElement | null)?.isContentEditable;
+
+        if (!isTypingField) {
+          e.preventDefault();
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }
+      }
+
+      if (e.key !== "Tab" || !root) return;
+
+      const focusables = Array.from(root.querySelectorAll<HTMLElement>(selector)).filter(
+        (node) => node.tabIndex !== -1 && node.getClientRects().length > 0,
+      );
+
+      if (!focusables.length) return;
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const current = document.activeElement as HTMLElement | null;
+
+      if (e.shiftKey && current === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && current === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
 
     return () => {
+      window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown);
+
+      if (lastFocusedRef.current && document.contains(lastFocusedRef.current)) {
+        lastFocusedRef.current.focus();
+      }
     };
   }, [panel, showHome]);
 
@@ -743,25 +950,46 @@ export default function PortfolioPage() {
 
     let cancelled = false;
     let timer = 0;
+    let failCount = 0;
     let controller: AbortController | null = null;
 
-    const requestStatus = async (signal: AbortSignal): Promise<DiscordPresence> => {
-      const localController = new AbortController();
+    const clearPending = () => {
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = 0;
+      }
 
-      const abortFromParent = () => {
-        localController.abort();
-      };
+      controller?.abort();
+      controller = null;
+    };
 
-      signal.addEventListener("abort", abortFromParent, { once: true });
+    const schedule = (ms: number) => {
+      if (cancelled) return;
+      timer = window.setTimeout(() => {
+        void poll();
+      }, ms);
+    };
+
+    const poll = async (force = false) => {
+      if (cancelled) return;
+
+      if (!force && document.hidden) {
+        schedule(DISCORD_POLL_MS);
+        return;
+      }
+
+      controller?.abort();
+      const currentController = new AbortController();
+      controller = currentController;
 
       const timeoutId = window.setTimeout(() => {
-        localController.abort();
+        currentController.abort();
       }, 4500);
 
       try {
         const res = await fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`, {
           cache: "no-store",
-          signal: localController.signal,
+          signal: currentController.signal,
           headers: {
             Accept: "application/json",
           },
@@ -777,50 +1005,38 @@ export default function PortfolioPage() {
           };
         };
 
-        const raw = String(data?.data?.discord_status ?? "offline").toLowerCase();
-
-        if (raw === "online" || raw === "idle" || raw === "dnd") {
-          return raw;
-        }
-
-        return "offline";
-      } finally {
-        window.clearTimeout(timeoutId);
-        signal.removeEventListener("abort", abortFromParent);
-      }
-    };
-
-    const poll = async () => {
-      controller?.abort();
-
-      const currentController = new AbortController();
-      controller = currentController;
-
-      try {
-        const nextStatus = await requestStatus(currentController.signal);
-
         if (cancelled || currentController.signal.aborted) return;
 
+        const raw = String(data?.data?.discord_status ?? "offline").toLowerCase();
+        const nextStatus: DiscordPresence =
+          raw === "online" || raw === "idle" || raw === "dnd" ? raw : "offline";
+
+        failCount = 0;
         setDiscordStatus(nextStatus);
         setStatusLoaded(true);
+        schedule(DISCORD_POLL_MS);
       } catch {
         if (cancelled || currentController.signal.aborted) return;
 
+        failCount += 1;
         setStatusLoaded(true);
+
+        const retryDelay = Math.min(120000, 8000 * 2 ** Math.min(failCount, 3));
+        schedule(retryDelay);
       } finally {
-        if (!cancelled) {
-          timer = window.setTimeout(() => {
-            void poll();
-          }, DISCORD_POLL_MS);
+        window.clearTimeout(timeoutId);
+        if (controller === currentController) {
+          controller = null;
         }
       }
     };
 
-    void poll();
+    void poll(true);
 
     const onVisibility = () => {
       if (!document.hidden) {
-        void poll();
+        clearPending();
+        void poll(true);
       }
     };
 
@@ -828,8 +1044,7 @@ export default function PortfolioPage() {
 
     return () => {
       cancelled = true;
-      controller?.abort();
-      window.clearTimeout(timer);
+      clearPending();
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
@@ -878,13 +1093,13 @@ export default function PortfolioPage() {
     };
 
     const startMusic = () => {
-      if (!musicEnabled || disposed) return;
+      if (!musicEnabled || disposed || !pageVisible) return;
 
       clearPauseTimer();
 
       if (!audio.paused) {
         setMusicUnlocked(true);
-        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 240);
+        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 220);
         return;
       }
 
@@ -901,7 +1116,7 @@ export default function PortfolioPage() {
           .then(() => {
             if (disposed) return;
             setMusicUnlocked(true);
-            fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 520);
+            fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 480);
           })
           .catch(() => {
             if (disposed) return;
@@ -909,24 +1124,22 @@ export default function PortfolioPage() {
           });
       } else {
         setMusicUnlocked(true);
-        fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 520);
+        fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 480);
       }
     };
 
     const stopMusic = () => {
       clearPauseTimer();
 
-      if (audio.paused && audio.volume <= 0.001) {
-        return;
-      }
+      if (audio.paused && audio.volume <= 0.001) return;
 
-      fadeVolume(audio.volume, 0, 300);
+      fadeVolume(audio.volume, 0, 260);
 
       pauseTimer = window.setTimeout(() => {
         if (disposed) return;
         audio.pause();
         audio.currentTime = 0;
-      }, 320);
+      }, 290);
     };
 
     audio.loop = true;
@@ -934,31 +1147,19 @@ export default function PortfolioPage() {
     audio.volume = 0;
     audio.load();
 
-    if (musicEnabled) {
+    if (musicEnabled && pageVisible) {
       startMusic();
     } else {
       stopMusic();
     }
 
     const unlock = () => {
-      if (!musicEnabled) return;
+      if (!musicEnabled || !pageVisible) return;
       startMusic();
-    };
-
-    const onVisibility = () => {
-      if (document.hidden) {
-        stopMusic();
-        return;
-      }
-
-      if (musicEnabled) {
-        startMusic();
-      }
     };
 
     window.addEventListener("pointerdown", unlock, { passive: true });
     window.addEventListener("keydown", unlock);
-    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       disposed = true;
@@ -966,9 +1167,8 @@ export default function PortfolioPage() {
       cancelFade();
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
-      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [musicEnabled]);
+  }, [musicEnabled, pageVisible]);
 
   useEffect(() => {
     return () => {
@@ -1100,7 +1300,7 @@ export default function PortfolioPage() {
                 setAvatarIndex((prev) => (prev < avatarSources.length - 1 ? prev + 1 : prev));
               }}
             />
-            <div className={`badge badge-${discordStatus}`}>
+            <div className={`badge badge-${discordStatus}`} aria-live="polite" aria-busy={!statusLoaded}>
               <span className="dot" />
               {statusText}
             </div>
@@ -1189,6 +1389,7 @@ export default function PortfolioPage() {
         <div className={`overlay ${panelClosing ? "overlay-closing" : "overlay-open"}`} onClick={showHome}>
           <section
             key={`${panel}-${panelRenderKey}`}
+            ref={panelRef}
             className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} ${panelClosing ? "panel-closing" : "panel-opening"}`}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
@@ -1220,48 +1421,40 @@ export default function PortfolioPage() {
                       className="search-input"
                       aria-label="Search showcase"
                     />
+                    {query && (
+                      <button
+                        type="button"
+                        className="search-clear"
+                        onClick={() => setQuery("")}
+                        aria-label="Clear search"
+                      >
+                        <X className="mini" />
+                      </button>
+                    )}
                   </div>
                   <div className="toolbar-meta">{filteredShowcases.length} systems</div>
                 </div>
 
                 <div className="video-grid">
                   {filteredShowcases.length > 0 ? (
-                    filteredShowcases.map((item, index) => {
-                      const key = `main-${item.embed}`;
-                      const isLoaded = !!loadedVideos[key];
+                    filteredShowcases.map((item, index) => (
+                      <article key={item.embed} className={`video-card reveal delay-${(index % 3) + 1}`}>
+                        <VideoEmbed
+                          title={item.title}
+                          src={item.embed}
+                          eager={index < eagerShowcaseCount}
+                        />
 
-                      return (
-                        <article key={item.embed} className={`video-card reveal delay-${(index % 3) + 1}`}>
-                          <div className={`video-frame-shell ${isLoaded ? "is-loaded" : ""}`}>
-                            <div className="video-skeleton">
-                              <span />
-                              <span />
-                              <span />
-                            </div>
+                        <h3>{item.title}</h3>
+                        <p>{item.desc}</p>
 
-                            <iframe
-                              title={item.title}
-                              src={item.embed}
-                              className="video-frame"
-                              allow="autoplay; fullscreen; picture-in-picture"
-                              allowFullScreen
-                              loading={index < eagerShowcaseCount ? "eager" : "lazy"}
-                              referrerPolicy="strict-origin-when-cross-origin"
-                              onLoad={() => markVideoLoaded(key)}
-                            />
-                          </div>
-
-                          <h3>{item.title}</h3>
-                          <p>{item.desc}</p>
-
-                          <div className="video-actions">
-                            <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
-                              Open Video
-                            </a>
-                          </div>
-                        </article>
-                      );
-                    })
+                        <div className="video-actions">
+                          <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
+                            Open Video
+                          </a>
+                        </div>
+                      </article>
+                    ))
                   ) : (
                     <div className="empty-card">
                       <h3>No matches</h3>
@@ -1276,45 +1469,27 @@ export default function PortfolioPage() {
                   </div>
 
                   <div className="big-showcase-list">
-                    {bigShowcases.map((item, index) => {
-                      const key = `big-${item.embed}`;
-                      const isLoaded = !!loadedVideos[key];
+                    {bigShowcases.map((item, index) => (
+                      <article key={item.embed} className={`big-showcase-card reveal delay-${(index % 3) + 1}`}>
+                        <VideoEmbed
+                          title={item.title}
+                          src={item.embed}
+                          eager={!mobileFxLite && index === 0}
+                        />
 
-                      return (
-                        <article key={item.embed} className={`big-showcase-card reveal delay-${(index % 3) + 1}`}>
-                          <div className={`video-frame-shell big-shell ${isLoaded ? "is-loaded" : ""}`}>
-                            <div className="video-skeleton">
-                              <span />
-                              <span />
-                              <span />
-                            </div>
+                        <div className="big-showcase-copy">
+                          <h4>{item.title}</h4>
+                          <p>{item.credits}</p>
+                          <p className="big-bio">{item.bio}</p>
 
-                            <iframe
-                              title={item.title}
-                              src={item.embed}
-                              className="video-frame"
-                              allow="autoplay; fullscreen; picture-in-picture"
-                              allowFullScreen
-                              loading={mobileFxLite ? "lazy" : "eager"}
-                              referrerPolicy="strict-origin-when-cross-origin"
-                              onLoad={() => markVideoLoaded(key)}
-                            />
+                          <div className="video-actions">
+                            <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
+                              Open Video
+                            </a>
                           </div>
-
-                          <div className="big-showcase-copy">
-                            <h4>{item.title}</h4>
-                            <p>{item.credits}</p>
-                            <p className="big-bio">{item.bio}</p>
-
-                            <div className="video-actions">
-                              <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
-                                Open Video
-                              </a>
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
+                        </div>
+                      </article>
+                    ))}
                   </div>
                 </section>
               </>
@@ -1454,6 +1629,15 @@ export default function PortfolioPage() {
           --my: 0;
           --cx: 50%;
           --cy: 34%;
+        }
+
+        .page-shell,
+        .panel,
+        .video-frame,
+        .avatar,
+        .dynamic-particle {
+          backface-visibility: hidden;
+          transform: translateZ(0);
         }
 
         .page-shell.booting .top-stack,
@@ -1871,8 +2055,8 @@ export default function PortfolioPage() {
           white-space: nowrap;
           position: relative;
           z-index: 1;
-          transform: translateZ(0);
           transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+          will-change: transform;
         }
 
         .tab-btn:hover {
@@ -2004,6 +2188,7 @@ export default function PortfolioPage() {
           font-weight: 950;
           letter-spacing: -0.055em;
           text-shadow: 0 10px 35px rgba(255, 255, 255, 0.05);
+          text-wrap: balance;
         }
 
         .hero-accent {
@@ -2025,6 +2210,7 @@ export default function PortfolioPage() {
           font-size: 15px;
           line-height: 1.75;
           color: rgba(255, 255, 255, 0.56);
+          text-wrap: pretty;
         }
 
         .status-row,
@@ -2091,6 +2277,7 @@ export default function PortfolioPage() {
           background: rgba(255, 255, 255, 0.04);
           padding: 10px 14px;
           transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+          will-change: transform;
         }
 
         .status-pill,
@@ -2233,6 +2420,7 @@ export default function PortfolioPage() {
             color 0.22s ease,
             border-color 0.22s ease,
             box-shadow 0.22s ease;
+          will-change: transform;
         }
 
         .main-btn::before,
@@ -2319,6 +2507,8 @@ export default function PortfolioPage() {
           box-shadow:
             0 26px 80px rgba(0, 0, 0, 0.58),
             inset 0 1px 0 rgba(255, 255, 255, 0.06);
+          overscroll-behavior: contain;
+          scrollbar-gutter: stable both-edges;
         }
 
         .panel-showcase {
@@ -2371,7 +2561,8 @@ export default function PortfolioPage() {
           color: rgba(255, 255, 255, 0.42);
         }
 
-        .close-btn {
+        .close-btn,
+        .search-clear {
           border: 0;
           font: inherit;
           width: 38px;
@@ -2386,7 +2577,14 @@ export default function PortfolioPage() {
           flex-shrink: 0;
         }
 
-        .close-btn:hover {
+        .search-clear {
+          width: 30px;
+          height: 30px;
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .close-btn:hover,
+        .search-clear:hover {
           transform: translateY(-2px);
           background: rgba(255, 255, 255, 0.1);
         }
@@ -2416,7 +2614,7 @@ export default function PortfolioPage() {
           display: flex;
           align-items: center;
           gap: 10px;
-          padding: 0 14px;
+          padding: 0 10px 0 14px;
           border-radius: 16px;
           border: 1px solid rgba(255, 255, 255, 0.08);
           background: rgba(255, 255, 255, 0.04);
@@ -2472,6 +2670,8 @@ export default function PortfolioPage() {
             border-color 0.22s ease,
             background 0.22s ease,
             box-shadow 0.22s ease;
+          content-visibility: auto;
+          contain-intrinsic-size: 320px;
         }
 
         .video-card::before,
@@ -2511,8 +2711,9 @@ export default function PortfolioPage() {
           background: #050505;
         }
 
-        .big-shell {
-          min-height: 100%;
+        .video-placeholder {
+          width: 100%;
+          aspect-ratio: 16 / 9;
         }
 
         .video-skeleton {
@@ -3075,7 +3276,6 @@ export default function PortfolioPage() {
             overflow-y: auto;
             overflow-x: hidden;
             -webkit-overflow-scrolling: touch;
-            overscroll-behavior: contain;
             touch-action: pan-y;
           }
 
@@ -3138,6 +3338,30 @@ export default function PortfolioPage() {
 
           .info-card ul {
             padding-left: 16px;
+          }
+        }
+
+        @media (hover: none) {
+          .tab-btn:hover,
+          .main-btn:hover,
+          .ghost-btn:hover,
+          .commission-cta:hover,
+          .commission-ghost:hover,
+          .discord-callout-btn:hover,
+          .video-open-btn:hover,
+          .status-pill:hover,
+          .stat-pill:hover,
+          .cred-pill:hover,
+          .skill-pill:hover,
+          .close-btn:hover,
+          .search-clear:hover,
+          .video-card:hover,
+          .tier-card:hover,
+          .info-card:hover,
+          .policy-card:hover,
+          .big-showcase-card:hover {
+            transform: none;
+            box-shadow: none;
           }
         }
 
