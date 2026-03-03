@@ -126,7 +126,7 @@ const EMAIL_ADDRESS = "liamj7872@gmail.com";
 const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
 const ROBLOX_PROFILE_URL = "https://www.roblox.com/users/4554029027/profile";
 
-const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v6";
+const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v7";
 const ASSET_VERSION = "20260302";
 const PROFILE_IMAGE_SRC = `/profile.png?v=${ASSET_VERSION}`;
 const LOGO_IMAGE_SRC = `/logo.png?v=${ASSET_VERSION}`;
@@ -310,6 +310,15 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function clamp01(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function setSafeVolume(audio: HTMLAudioElement, value: number) {
+  audio.volume = clamp01(value);
+}
+
 function getCustomStatusNote(activities?: LanyardActivity[]) {
   const custom = activities?.find((activity) => activity.type === 4);
   if (!custom) return "";
@@ -491,6 +500,7 @@ export default function PortfolioPage() {
 
   const preloadTargets = useMemo(() => {
     if (liteMode) return [];
+
     return Array.from(
       new Set([
         ...showcases.slice(0, 2).map((item) => item.embed),
@@ -698,6 +708,13 @@ export default function PortfolioPage() {
 
     const ease = liteMode ? 1 : reduceMotion ? 0.18 : 0.1;
     const motionScale = liteMode ? 0.14 : reduceMotion ? 0.18 : 1;
+    const supportsPointer = "PointerEvent" in window;
+    const supportsTouch =
+      navigator.maxTouchPoints > 0 ||
+      "ontouchstart" in window ||
+      window.matchMedia("(pointer: coarse)").matches;
+
+    const passiveOptions: AddEventListenerOptions = { passive: true };
 
     const updateFromPoint = (clientX: number, clientY: number) => {
       const rect = el.getBoundingClientRect();
@@ -755,6 +772,10 @@ export default function PortfolioPage() {
       updateFromPoint(touch.clientX, touch.clientY);
     };
 
+    const handleWindowBlur = () => {
+      resetMotion();
+    };
+
     el.style.setProperty("--mx", "0");
     el.style.setProperty("--my", "0");
     el.style.setProperty("--cx", "50%");
@@ -764,28 +785,34 @@ export default function PortfolioPage() {
       raf = window.requestAnimationFrame(frame);
     }
 
-    if ("PointerEvent" in window) {
-      window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    if (supportsPointer) {
+      window.addEventListener("pointermove", handlePointerMove, passiveOptions);
     } else {
-      window.addEventListener("mousemove", handleMouseMove, { passive: true });
+      window.addEventListener("mousemove", handleMouseMove, passiveOptions);
     }
 
-    window.addEventListener("touchmove", handleTouchMove, { passive: true });
-    window.addEventListener("touchend", resetMotion, { passive: true });
-    window.addEventListener("touchcancel", resetMotion, { passive: true });
-    window.addEventListener("blur", resetMotion);
+    if (supportsTouch) {
+      window.addEventListener("touchmove", handleTouchMove, passiveOptions);
+      window.addEventListener("touchend", resetMotion, passiveOptions);
+      window.addEventListener("touchcancel", resetMotion, passiveOptions);
+    }
+
+    window.addEventListener("blur", handleWindowBlur);
 
     return () => {
-      if ("PointerEvent" in window) {
+      if (supportsPointer) {
         window.removeEventListener("pointermove", handlePointerMove);
       } else {
         window.removeEventListener("mousemove", handleMouseMove);
       }
 
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", resetMotion);
-      window.removeEventListener("touchcancel", resetMotion);
-      window.removeEventListener("blur", resetMotion);
+      if (supportsTouch) {
+        window.removeEventListener("touchmove", handleTouchMove);
+        window.removeEventListener("touchend", resetMotion);
+        window.removeEventListener("touchcancel", resetMotion);
+      }
+
+      window.removeEventListener("blur", handleWindowBlur);
       window.cancelAnimationFrame(raf);
     };
   }, [liteMode, pageVisible, reduceMotion]);
@@ -911,12 +938,29 @@ export default function PortfolioPage() {
     let resyncTimer = 0;
     let reconnectAttempt = 0;
     let fetchController: AbortController | null = null;
+    let fetchTimeout = 0;
+    let lastSocketUpdateAt = 0;
 
-    const applyPresence = (payload?: LanyardPresence) => {
+    const applyPresence = (payload: LanyardPresence | undefined, source: "socket" | "rest") => {
       const raw = String(payload?.discord_status ?? "offline").toLowerCase();
 
       const nextStatus: DiscordPresence =
         raw === "online" || raw === "idle" || raw === "dnd" ? raw : "offline";
+
+      const now = Date.now();
+
+      if (
+        source === "rest" &&
+        socket?.readyState === WebSocket.OPEN &&
+        lastSocketUpdateAt > 0 &&
+        now - lastSocketUpdateAt < 20000
+      ) {
+        return;
+      }
+
+      if (source === "socket") {
+        lastSocketUpdateAt = now;
+      }
 
       setDiscordStatus(nextStatus);
       setDiscordNote(getCustomStatusNote(payload?.activities));
@@ -934,6 +978,13 @@ export default function PortfolioPage() {
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
         reconnectTimer = 0;
+      }
+    };
+
+    const clearFetchTimeout = () => {
+      if (fetchTimeout) {
+        window.clearTimeout(fetchTimeout);
+        fetchTimeout = 0;
       }
     };
 
@@ -956,9 +1007,14 @@ export default function PortfolioPage() {
 
     const fetchPresence = async () => {
       fetchController?.abort();
+      clearFetchTimeout();
 
       const controller = new AbortController();
       fetchController = controller;
+
+      fetchTimeout = window.setTimeout(() => {
+        controller.abort();
+      }, 5000);
 
       try {
         const response = await fetch(DISCORD_REST_URL, {
@@ -977,11 +1033,13 @@ export default function PortfolioPage() {
 
         if (cancelled || controller.signal.aborted) return;
 
-        applyPresence(data.data);
+        applyPresence(data.data, "rest");
       } catch {
         if (cancelled || controller.signal.aborted) return;
         setStatusLoaded(true);
       } finally {
+        clearFetchTimeout();
+
         if (fetchController === controller) {
           fetchController = null;
         }
@@ -1060,7 +1118,7 @@ export default function PortfolioPage() {
         }
 
         if (message.op === 0 && (message.t === "INIT_STATE" || message.t === "PRESENCE_UPDATE")) {
-          applyPresence(message.d as LanyardPresence);
+          applyPresence(message.d as LanyardPresence, "socket");
         }
       };
 
@@ -1105,6 +1163,7 @@ export default function PortfolioPage() {
       }
 
       clearReconnect();
+      clearFetchTimeout();
       fetchController?.abort();
       closeSocket();
     };
@@ -1116,7 +1175,7 @@ export default function PortfolioPage() {
 
     audio.loop = true;
     audio.preload = "metadata";
-    audio.volume = 0;
+    setSafeVolume(audio, 0);
   }, []);
 
   useEffect(() => {
@@ -1143,18 +1202,24 @@ export default function PortfolioPage() {
     const fadeVolume = (from: number, to: number, duration: number) => {
       cancelFade();
 
+      const safeFrom = clamp01(from);
+      const safeTo = clamp01(to);
+      const safeDuration = Math.max(1, duration);
       const start = performance.now();
 
       const tick = (now: number) => {
         if (disposed) return;
 
-        const progress = Math.min(1, (now - start) / duration);
+        const progress = Math.min(1, (now - start) / safeDuration);
         const eased = 1 - Math.pow(1 - progress, 3);
-        audio.volume = from + (to - from) * eased;
+        const nextVolume = safeFrom + (safeTo - safeFrom) * eased;
+
+        setSafeVolume(audio, nextVolume);
 
         if (progress < 1) {
           fadeFrameRef.current = window.requestAnimationFrame(tick);
         } else {
+          setSafeVolume(audio, safeTo);
           fadeFrameRef.current = null;
         }
       };
@@ -1162,7 +1227,7 @@ export default function PortfolioPage() {
       fadeFrameRef.current = window.requestAnimationFrame(tick);
     };
 
-    const targetVolume = liteMode ? Math.min(BG_MUSIC_VOLUME, 0.08) : BG_MUSIC_VOLUME;
+    const targetVolume = clamp01(liteMode ? Math.min(BG_MUSIC_VOLUME, 0.08) : BG_MUSIC_VOLUME);
 
     const startMusic = () => {
       if (!musicEnabled || disposed || !pageVisible) return;
@@ -1171,14 +1236,14 @@ export default function PortfolioPage() {
 
       if (!audio.paused) {
         setMusicUnlocked(true);
-        fadeVolume(audio.volume, targetVolume, 160);
+        fadeVolume(clamp01(audio.volume), targetVolume, 160);
         return;
       }
 
       audio.muted = false;
 
       if (audio.volume <= 0) {
-        audio.volume = 0.001;
+        setSafeVolume(audio, 0.001);
       }
 
       const result = audio.play();
@@ -1188,7 +1253,7 @@ export default function PortfolioPage() {
           .then(() => {
             if (disposed) return;
             setMusicUnlocked(true);
-            fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 300);
+            fadeVolume(clamp01(audio.volume), targetVolume, 300);
           })
           .catch(() => {
             if (disposed) return;
@@ -1196,7 +1261,7 @@ export default function PortfolioPage() {
           });
       } else {
         setMusicUnlocked(true);
-        fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 300);
+        fadeVolume(clamp01(audio.volume), targetVolume, 300);
       }
     };
 
@@ -1205,7 +1270,7 @@ export default function PortfolioPage() {
 
       if (audio.paused && audio.volume <= 0.001) return;
 
-      fadeVolume(audio.volume, 0, 220);
+      fadeVolume(clamp01(audio.volume), 0, 220);
 
       pauseTimer = window.setTimeout(() => {
         if (disposed) return;
