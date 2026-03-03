@@ -57,6 +57,17 @@ type PriceTier = {
   icon: "fix" | "mini" | "play" | "full" | "game";
 };
 
+type HomeFeature = {
+  title: string;
+  body: string;
+  icon: PriceTier["icon"] | "check";
+};
+
+type WorkflowStep = {
+  title: string;
+  body: string;
+};
+
 type ParticleDot = {
   left: string;
   top: string;
@@ -67,17 +78,6 @@ type ParticleDot = {
   driftX: number;
   driftY: number;
   blur: number;
-};
-
-type HomeFeature = {
-  title: string;
-  body: string;
-  icon: PriceTier["icon"] | "check";
-};
-
-type WorkflowStep = {
-  title: string;
-  body: string;
 };
 
 type CSSVars = CSSProperties & {
@@ -103,22 +103,30 @@ type LanyardPresence = {
   activities?: LanyardActivity[];
 };
 
+type LanyardHello = {
+  heartbeat_interval?: number;
+};
+
 type LanyardSocketMessage = {
   op?: number;
   t?: string;
-  d?: { heartbeat_interval?: number } | LanyardPresence;
+  d?: LanyardHello | LanyardPresence;
 };
 
 const DISCORD_USER_ID = "1404955716887904266";
 const DISCORD_STATUS_ENABLED = /^\d{8,25}$/.test(DISCORD_USER_ID);
+const DISCORD_WS_URL = "wss://api.lanyard.rest/socket";
+const DISCORD_REST_URL = `https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`;
 
-const INITIAL_BOOT_MS = 700;
+const INITIAL_BOOT_MS = 650;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
-const BG_MUSIC_VOLUME = 0.15;
+const BG_MUSIC_VOLUME = 0.14;
+
 const EMAIL_ADDRESS = "liamj7872@gmail.com";
 const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
-const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v5";
+const ROBLOX_PROFILE_URL = "https://www.roblox.com/users/4554029027/profile";
 
+const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v6";
 const ASSET_VERSION = "20260302";
 const PROFILE_IMAGE_SRC = `/profile.png?v=${ASSET_VERSION}`;
 const LOGO_IMAGE_SRC = `/logo.png?v=${ASSET_VERSION}`;
@@ -215,18 +223,18 @@ const workflowSteps: WorkflowStep[] = [
   },
   {
     title: "Stress Test",
-    body: "I think through spam, respawn, timing, and failure cases before calling it done.",
+    body: "Spam, respawn, timing, and failure cases get thought through before delivery.",
   },
 ];
 
-function createParticleDots(count = 36): ParticleDot[] {
+function createParticleDots(count = 28): ParticleDot[] {
   return Array.from({ length: count }, (_, i) => {
     const leftPct = 2 + ((i * 13) % 96);
     const topPct = 2 + ((i * 19) % 94);
     const size = 2 + (i % 4);
-    const opacity = Math.min(0.22 + (i % 6) * 0.08, 0.76);
-    const driftX = (((i % 7) - 3) * 1.2);
-    const driftY = ((((i + 2) % 7) - 3) * 1.1);
+    const opacity = Math.min(0.2 + (i % 6) * 0.08, 0.72);
+    const driftX = ((i % 7) - 3) * 1.15;
+    const driftY = (((i + 2) % 7) - 3) * 1.05;
     const blur = Math.max(0, (size - 2) * 0.35);
 
     return {
@@ -235,7 +243,7 @@ function createParticleDots(count = 36): ParticleDot[] {
       size,
       opacity,
       delay: `${(i % 10) * 0.2}s`,
-      duration: `${5 + (i % 7) * 0.75}s`,
+      duration: `${4.8 + (i % 7) * 0.75}s`,
       driftX,
       driftY,
       blur,
@@ -265,7 +273,6 @@ function preloadImage(src: string) {
   return new Promise<void>((resolve) => {
     const img = new Image();
     img.decoding = "async";
-    img.loading = "eager";
     img.onload = () => resolve();
     img.onerror = () => resolve();
     img.src = src;
@@ -309,10 +316,10 @@ function getCustomStatusNote(activities?: LanyardActivity[]) {
 
   const emoji = custom.emoji && !custom.emoji.id ? custom.emoji.name?.trim() ?? "" : "";
   const text = custom.state?.trim() ?? "";
-  const value = [emoji, text].filter(Boolean).join(" ").trim();
+  const combined = [emoji, text].filter(Boolean).join(" ").trim();
 
-  if (!value) return "";
-  return value.length > 90 ? `${value.slice(0, 89).trimEnd()}…` : value;
+  if (!combined) return "";
+  return combined.length > 90 ? `${combined.slice(0, 89).trimEnd()}…` : combined;
 }
 
 function usePrefersReducedMotion() {
@@ -383,9 +390,7 @@ function useInViewOnce<T extends Element>(enabled: boolean) {
 
     observer.observe(node);
 
-    return () => {
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, [enabled, inView]);
 
   return { ref, inView };
@@ -456,10 +461,12 @@ export default function PortfolioPage() {
   const [panel, setPanel] = useState<Panel>("none");
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
+
   const [emailCopied, setEmailCopied] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
   const [discordNote, setDiscordNote] = useState("");
   const [statusLoaded, setStatusLoaded] = useState(!DISCORD_STATUS_ENABLED);
+
   const [pageReady, setPageReady] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [musicUnlocked, setMusicUnlocked] = useState(false);
@@ -479,18 +486,17 @@ export default function PortfolioPage() {
   const modalOpen = panel !== "none";
   const activeTab: NavTab = panel === "none" ? "home" : panel;
 
-  const particleDots = useMemo(() => createParticleDots(liteMode ? 16 : 36), [liteMode]);
+  const particleDots = useMemo(() => createParticleDots(liteMode ? 14 : 28), [liteMode]);
   const eagerShowcaseCount = liteMode ? 1 : 3;
 
   const preloadTargets = useMemo(() => {
     if (liteMode) return [];
-
-    const values = [
-      ...showcases.slice(0, 2).map((item) => item.embed),
-      ...bigShowcases.slice(0, 1).map((item) => item.embed),
-    ];
-
-    return Array.from(new Set(values));
+    return Array.from(
+      new Set([
+        ...showcases.slice(0, 2).map((item) => item.embed),
+        ...bigShowcases.slice(0, 1).map((item) => item.embed),
+      ]),
+    );
   }, [liteMode]);
 
   const openPanel = useCallback((next: Exclude<Panel, "none">) => {
@@ -668,16 +674,14 @@ export default function PortfolioPage() {
         for (const href of preloadTargets) {
           addLink({ rel: "prefetch", href });
         }
-      }, 300);
+      }, 260);
     }
 
     return () => {
       window.clearTimeout(prefetchTimer);
 
       for (const link of links) {
-        if (link.parentNode) {
-          link.parentNode.removeChild(link);
-        }
+        link.parentNode?.removeChild(link);
       }
     };
   }, [liteMode, preloadTargets]);
@@ -692,19 +696,22 @@ export default function PortfolioPage() {
     let currentX = 0;
     let currentY = 0;
 
-    const ease = liteMode ? 1 : reduceMotion ? 0.16 : 0.1;
+    const ease = liteMode ? 1 : reduceMotion ? 0.18 : 0.1;
     const motionScale = liteMode ? 0.14 : reduceMotion ? 0.18 : 1;
 
-    const updateRectAndPoint = (clientX: number, clientY: number) => {
+    const updateFromPoint = (clientX: number, clientY: number) => {
       const rect = el.getBoundingClientRect();
-      const localX = clamp(clientX - rect.left, 0, rect.width || 1);
-      const localY = clamp(clientY - rect.top, 0, rect.height || 1);
+      const safeWidth = Math.max(rect.width, 1);
+      const safeHeight = Math.max(rect.height, 1);
 
-      targetX = (localX / Math.max(rect.width, 1) - 0.5) * 2;
-      targetY = (localY / Math.max(rect.height, 1) - 0.5) * 2;
+      const localX = clamp(clientX - rect.left, 0, safeWidth);
+      const localY = clamp(clientY - rect.top, 0, safeHeight);
 
-      el.style.setProperty("--cx", `${((localX / Math.max(rect.width, 1)) * 100).toFixed(2)}%`);
-      el.style.setProperty("--cy", `${((localY / Math.max(rect.height, 1)) * 100).toFixed(2)}%`);
+      targetX = (localX / safeWidth - 0.5) * 2;
+      targetY = (localY / safeHeight - 0.5) * 2;
+
+      el.style.setProperty("--cx", `${((localX / safeWidth) * 100).toFixed(2)}%`);
+      el.style.setProperty("--cy", `${((localY / safeHeight) * 100).toFixed(2)}%`);
 
       if (liteMode) {
         el.style.setProperty("--mx", (targetX * motionScale).toFixed(4));
@@ -735,17 +742,17 @@ export default function PortfolioPage() {
     };
 
     const handlePointerMove = (event: PointerEvent) => {
-      updateRectAndPoint(event.clientX, event.clientY);
+      updateFromPoint(event.clientX, event.clientY);
     };
 
     const handleMouseMove = (event: MouseEvent) => {
-      updateRectAndPoint(event.clientX, event.clientY);
+      updateFromPoint(event.clientX, event.clientY);
     };
 
     const handleTouchMove = (event: TouchEvent) => {
       const touch = event.touches[0];
       if (!touch) return;
-      updateRectAndPoint(touch.clientX, touch.clientY);
+      updateFromPoint(touch.clientX, touch.clientY);
     };
 
     el.style.setProperty("--mx", "0");
@@ -833,18 +840,19 @@ export default function PortfolioPage() {
       const focusTarget =
         (panel === "showcase" ? searchInputRef.current : null) ??
         root?.querySelector<HTMLElement>(selector);
+
       focusTarget?.focus();
     }, 40);
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
         closePanel();
         return;
       }
 
       if (
-        e.key === "/" &&
+        event.key === "/" &&
         panel === "showcase" &&
         document.activeElement !== searchInputRef.current
       ) {
@@ -854,13 +862,13 @@ export default function PortfolioPage() {
           tag === "input" || tag === "textarea" || Boolean(active?.isContentEditable);
 
         if (!isTypingField) {
-          e.preventDefault();
+          event.preventDefault();
           searchInputRef.current?.focus();
           searchInputRef.current?.select();
         }
       }
 
-      if (e.key !== "Tab" || !root) return;
+      if (event.key !== "Tab" || !root) return;
 
       const focusables = Array.from(root.querySelectorAll<HTMLElement>(selector)).filter(
         (node) => node.tabIndex !== -1 && node.getClientRects().length > 0,
@@ -872,11 +880,11 @@ export default function PortfolioPage() {
       const last = focusables[focusables.length - 1];
       const current = document.activeElement as HTMLElement | null;
 
-      if (e.shiftKey && current === first) {
-        e.preventDefault();
+      if (event.shiftKey && current === first) {
+        event.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && current === last) {
-        e.preventDefault();
+      } else if (!event.shiftKey && current === last) {
+        event.preventDefault();
         first.focus();
       }
     };
@@ -953,7 +961,7 @@ export default function PortfolioPage() {
       fetchController = controller;
 
       try {
-        const res = await fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`, {
+        const response = await fetch(DISCORD_REST_URL, {
           cache: "no-store",
           signal: controller.signal,
           headers: {
@@ -961,13 +969,11 @@ export default function PortfolioPage() {
           },
         });
 
-        if (!res.ok) {
+        if (!response.ok) {
           throw new Error("Failed to fetch Discord presence");
         }
 
-        const data = (await res.json()) as {
-          data?: LanyardPresence;
-        };
+        const data = (await response.json()) as { data?: LanyardPresence };
 
         if (cancelled || controller.signal.aborted) return;
 
@@ -1008,7 +1014,7 @@ export default function PortfolioPage() {
       closeSocket();
 
       try {
-        socket = new WebSocket("wss://api.lanyard.rest/socket");
+        socket = new WebSocket(DISCORD_WS_URL);
       } catch {
         scheduleReconnect();
         return;
@@ -1019,6 +1025,8 @@ export default function PortfolioPage() {
       };
 
       socket.onmessage = (event) => {
+        if (typeof event.data !== "string") return;
+
         let message: LanyardSocketMessage | null = null;
 
         try {
@@ -1030,7 +1038,7 @@ export default function PortfolioPage() {
         if (!message) return;
 
         if (message.op === 1) {
-          const hello = message.d as { heartbeat_interval?: number } | undefined;
+          const hello = message.d as LanyardHello | undefined;
           const heartbeatInterval =
             typeof hello?.heartbeat_interval === "number"
               ? Math.max(1000, hello.heartbeat_interval)
@@ -1074,7 +1082,7 @@ export default function PortfolioPage() {
       if (!document.hidden) {
         void fetchPresence();
       }
-    }, 90000);
+    }, 45000);
 
     const onVisibility = () => {
       if (!document.hidden) {
@@ -1090,7 +1098,6 @@ export default function PortfolioPage() {
 
     return () => {
       cancelled = true;
-
       document.removeEventListener("visibilitychange", onVisibility);
 
       if (resyncTimer) {
@@ -1155,7 +1162,7 @@ export default function PortfolioPage() {
       fadeFrameRef.current = window.requestAnimationFrame(tick);
     };
 
-    const targetVolume = liteMode ? Math.min(BG_MUSIC_VOLUME, 0.1) : BG_MUSIC_VOLUME;
+    const targetVolume = liteMode ? Math.min(BG_MUSIC_VOLUME, 0.08) : BG_MUSIC_VOLUME;
 
     const startMusic = () => {
       if (!musicEnabled || disposed || !pageVisible) return;
@@ -1164,7 +1171,7 @@ export default function PortfolioPage() {
 
       if (!audio.paused) {
         setMusicUnlocked(true);
-        fadeVolume(audio.volume, targetVolume, 180);
+        fadeVolume(audio.volume, targetVolume, 160);
         return;
       }
 
@@ -1174,14 +1181,14 @@ export default function PortfolioPage() {
         audio.volume = 0.001;
       }
 
-      const playPromise = audio.play();
+      const result = audio.play();
 
-      if (playPromise && typeof playPromise.then === "function") {
-        playPromise
+      if (result && typeof result.then === "function") {
+        result
           .then(() => {
             if (disposed) return;
             setMusicUnlocked(true);
-            fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 320);
+            fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 300);
           })
           .catch(() => {
             if (disposed) return;
@@ -1189,7 +1196,7 @@ export default function PortfolioPage() {
           });
       } else {
         setMusicUnlocked(true);
-        fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 320);
+        fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 300);
       }
     };
 
@@ -1379,7 +1386,7 @@ export default function PortfolioPage() {
 
           <div className="discord-callout reveal delay-3">
             <span>JOIN DISCORD SERVER FOR FULL PORTFOLIO</span>
-            <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="discord-callout-btn">
+            <a href={DISCORD_INVITE} target="_blank" rel="noreferrer noopener" className="discord-callout-btn">
               Join Server
             </a>
           </div>
@@ -1410,9 +1417,19 @@ export default function PortfolioPage() {
               View Showcase
               <ArrowUpRight className="mini" />
             </button>
+
             <button type="button" className="ghost-btn" onClick={() => openPanel("commission")}>
               Commission Me
             </button>
+
+            <a
+              href={ROBLOX_PROFILE_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="ghost-btn"
+            >
+              Roblox Profile
+            </a>
           </div>
 
           <div className="skills reveal delay-3">
@@ -1453,7 +1470,7 @@ export default function PortfolioPage() {
           <section
             ref={panelRef}
             className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} panel-opening`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={panel === "showcase" ? "Showcase" : "Commission me"}
@@ -1478,7 +1495,7 @@ export default function PortfolioPage() {
                     <input
                       ref={searchInputRef}
                       value={query}
-                      onChange={(e) => setQuery(e.target.value)}
+                      onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search systems..."
                       className="search-input"
                       aria-label="Search showcase"
@@ -1494,6 +1511,7 @@ export default function PortfolioPage() {
                       </button>
                     )}
                   </div>
+
                   <div className="toolbar-meta">{filteredShowcases.length} systems</div>
                 </div>
 
@@ -1511,7 +1529,12 @@ export default function PortfolioPage() {
                         <p>{item.desc}</p>
 
                         <div className="video-actions">
-                          <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
+                          <a
+                            href={getVideoUrl(item.embed)}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="video-open-btn"
+                          >
                             Open Video
                           </a>
                         </div>
@@ -1545,7 +1568,12 @@ export default function PortfolioPage() {
                           <p className="big-bio">{item.bio}</p>
 
                           <div className="video-actions">
-                            <a href={getVideoUrl(item.embed)} target="_blank" rel="noreferrer" className="video-open-btn">
+                            <a
+                              href={getVideoUrl(item.embed)}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="video-open-btn"
+                            >
                               Open Video
                             </a>
                           </div>
@@ -1635,12 +1663,33 @@ export default function PortfolioPage() {
                     <Mail className="mini" />
                     {emailCopied ? "Copied" : "Email"}
                   </button>
-                  <a href="https://discord.com/app" target="_blank" rel="noreferrer" className="commission-ghost">
+
+                  <a
+                    href="https://discord.com/app"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="commission-ghost"
+                  >
                     <MessageCircle className="mini" />
                     Discord
                   </a>
-                  <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="commission-ghost">
+
+                  <a
+                    href={DISCORD_INVITE}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="commission-ghost"
+                  >
                     Server
+                  </a>
+
+                  <a
+                    href={ROBLOX_PROFILE_URL}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="commission-ghost"
+                  >
+                    Roblox
                   </a>
                 </div>
               </>
@@ -1839,7 +1888,6 @@ export default function PortfolioPage() {
             twinklePulse ease-in-out infinite,
             particleFloat linear infinite;
           transform: translate3d(0, 0, 0);
-          will-change: transform, opacity;
         }
 
         .top-stack {
@@ -1989,7 +2037,6 @@ export default function PortfolioPage() {
           line-height: 1.35;
           text-align: center;
           word-break: break-word;
-          text-wrap: pretty;
         }
 
         .dot {
@@ -2042,7 +2089,6 @@ export default function PortfolioPage() {
           font-weight: 950;
           letter-spacing: -0.055em;
           text-shadow: 0 10px 35px rgba(255, 255, 255, 0.05);
-          text-wrap: balance;
         }
 
         .hero-accent {
@@ -2064,7 +2110,6 @@ export default function PortfolioPage() {
           font-size: 15px;
           line-height: 1.75;
           color: rgba(255, 255, 255, 0.56);
-          text-wrap: pretty;
         }
 
         .status-row,
@@ -3092,10 +3137,6 @@ export default function PortfolioPage() {
           .search-shell {
             min-width: 0;
             max-width: none;
-          }
-
-          .toolbar-meta {
-            width: fit-content;
           }
 
           .note-badge {
