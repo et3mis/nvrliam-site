@@ -60,16 +60,13 @@ type PriceTier = {
 type ParticleDot = {
   left: string;
   top: string;
-  leftPct: number;
-  topPct: number;
   size: number;
   opacity: number;
   delay: string;
   duration: string;
-  dx: number;
-  dy: number;
+  driftX: number;
+  driftY: number;
   blur: number;
-  phase: number;
 };
 
 type HomeFeature = {
@@ -86,20 +83,43 @@ type WorkflowStep = {
 type CSSVars = CSSProperties & {
   "--blur"?: string;
   "--opacity-base"?: number | string;
+  "--drift-x"?: string;
+  "--drift-y"?: string;
+};
+
+type LanyardEmoji = {
+  id?: string | null;
+  name?: string | null;
+};
+
+type LanyardActivity = {
+  type?: number;
+  state?: string | null;
+  emoji?: LanyardEmoji | null;
+};
+
+type LanyardPresence = {
+  discord_status?: string;
+  activities?: LanyardActivity[];
+};
+
+type LanyardSocketMessage = {
+  op?: number;
+  t?: string;
+  d?: { heartbeat_interval?: number } | LanyardPresence;
 };
 
 const DISCORD_USER_ID = "1404955716887904266";
 const DISCORD_STATUS_ENABLED = /^\d{8,25}$/.test(DISCORD_USER_ID);
-const DISCORD_POLL_MS = 30000;
 
-const INITIAL_BOOT_MS = 900;
+const INITIAL_BOOT_MS = 700;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
-const BG_MUSIC_VOLUME = 0.18;
+const BG_MUSIC_VOLUME = 0.15;
 const EMAIL_ADDRESS = "liamj7872@gmail.com";
 const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
-const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v4";
+const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v5";
 
-const ASSET_VERSION = "20260301";
+const ASSET_VERSION = "20260302";
 const PROFILE_IMAGE_SRC = `/profile.png?v=${ASSET_VERSION}`;
 const LOGO_IMAGE_SRC = `/logo.png?v=${ASSET_VERSION}`;
 
@@ -148,7 +168,7 @@ const bigShowcases: BigShowcaseItem[] = [
   {
     title: "DYNAMIC MOVEMENT SYSTEM",
     embed: "https://streamable.com/e/8nqqaa?autoplay=0&loop=0",
-    credits: "Credits: SkaterStudios ( HELPED ) & nvrliam ( ME )",
+    credits: "Credits: SkaterStudios (HELPED) & nvrliam (ME)",
     bio: "Premium movement polish built to stay smooth, responsive, and stable in real gameplay.",
   },
 ];
@@ -191,7 +211,7 @@ const workflowSteps: WorkflowStep[] = [
   },
   {
     title: "Build",
-    body: "Systems are written to stay modular, clean, and easy to maintain.",
+    body: "Systems stay modular, clean, and easy to maintain.",
   },
   {
     title: "Stress Test",
@@ -199,30 +219,26 @@ const workflowSteps: WorkflowStep[] = [
   },
 ];
 
-function createParticleDots(count = 84): ParticleDot[] {
+function createParticleDots(count = 36): ParticleDot[] {
   return Array.from({ length: count }, (_, i) => {
-    const leftPct = 1 + ((i * 17) % 98);
-    const topPct = 2 + ((i * 23) % 94);
-    const size = 2 + (i % 5);
-    const opacity = Math.min(0.22 + (i % 7) * 0.09, 0.9);
-    const dx = Number((((i % 11) - 5) * (0.55 + (i % 3) * 0.18)).toFixed(2));
-    const dy = Number((((((i + 4) % 11) - 5) || 1) * (0.5 + (i % 4) * 0.16)).toFixed(2));
-    const blur = Math.max(0, (size - 2) * 0.45);
-    const phase = Number((i * 0.37).toFixed(3));
+    const leftPct = 2 + ((i * 13) % 96);
+    const topPct = 2 + ((i * 19) % 94);
+    const size = 2 + (i % 4);
+    const opacity = Math.min(0.22 + (i % 6) * 0.08, 0.76);
+    const driftX = (((i % 7) - 3) * 1.2);
+    const driftY = ((((i + 2) % 7) - 3) * 1.1);
+    const blur = Math.max(0, (size - 2) * 0.35);
 
     return {
       left: `${leftPct}%`,
       top: `${topPct}%`,
-      leftPct,
-      topPct,
       size,
       opacity,
-      delay: `${(i % 12) * 0.18}s`,
-      duration: `${4.6 + (i % 9) * 0.7}s`,
-      dx,
-      dy,
+      delay: `${(i % 10) * 0.2}s`,
+      duration: `${5 + (i % 7) * 0.75}s`,
+      driftX,
+      driftY,
       blur,
-      phase,
     };
   });
 }
@@ -249,40 +265,10 @@ function preloadImage(src: string) {
   return new Promise<void>((resolve) => {
     const img = new Image();
     img.decoding = "async";
+    img.loading = "eager";
     img.onload = () => resolve();
     img.onerror = () => resolve();
     img.src = src;
-  });
-}
-
-function preloadAudio(src: string) {
-  return new Promise<void>((resolve) => {
-    const audio = document.createElement("audio");
-    let done = false;
-
-    const finish = () => {
-      if (done) return;
-      done = true;
-      cleanup();
-      resolve();
-    };
-
-    const cleanup = () => {
-      window.clearTimeout(timeoutId);
-      audio.removeEventListener("canplaythrough", finish);
-      audio.removeEventListener("loadeddata", finish);
-      audio.removeEventListener("error", finish);
-      audio.src = "";
-    };
-
-    const timeoutId = window.setTimeout(finish, 1400);
-
-    audio.preload = "auto";
-    audio.addEventListener("canplaythrough", finish, { once: true });
-    audio.addEventListener("loadeddata", finish, { once: true });
-    audio.addEventListener("error", finish, { once: true });
-    audio.src = src;
-    audio.load();
   });
 }
 
@@ -315,6 +301,18 @@ function getVideoUrl(embed: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getCustomStatusNote(activities?: LanyardActivity[]) {
+  const custom = activities?.find((activity) => activity.type === 4);
+  if (!custom) return "";
+
+  const emoji = custom.emoji && !custom.emoji.id ? custom.emoji.name?.trim() ?? "" : "";
+  const text = custom.state?.trim() ?? "";
+  const value = [emoji, text].filter(Boolean).join(" ").trim();
+
+  if (!value) return "";
+  return value.length > 90 ? `${value.slice(0, 89).trimEnd()}…` : value;
 }
 
 function usePrefersReducedMotion() {
@@ -380,7 +378,7 @@ function useInViewOnce<T extends Element>(enabled: boolean) {
           observer.disconnect();
         }
       },
-      { rootMargin: "280px 0px" },
+      { rootMargin: "220px 0px" },
     );
 
     observer.observe(node);
@@ -460,16 +458,16 @@ export default function PortfolioPage() {
   const deferredQuery = useDeferredValue(query);
   const [emailCopied, setEmailCopied] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
+  const [discordNote, setDiscordNote] = useState("");
   const [statusLoaded, setStatusLoaded] = useState(!DISCORD_STATUS_ENABLED);
   const [pageReady, setPageReady] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [musicUnlocked, setMusicUnlocked] = useState(false);
   const [avatarIndex, setAvatarIndex] = useState(0);
-  const [mobileFxLite, setMobileFxLite] = useState(false);
+  const [liteMode, setLiteMode] = useState(false);
 
   const shellRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
-  const particleRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
@@ -481,21 +479,19 @@ export default function PortfolioPage() {
   const modalOpen = panel !== "none";
   const activeTab: NavTab = panel === "none" ? "home" : panel;
 
-  const particleDots = useMemo(() => createParticleDots(mobileFxLite ? 28 : 84), [mobileFxLite]);
-  const eagerShowcaseCount = mobileFxLite ? 1 : 4;
+  const particleDots = useMemo(() => createParticleDots(liteMode ? 16 : 36), [liteMode]);
+  const eagerShowcaseCount = liteMode ? 1 : 3;
 
   const preloadTargets = useMemo(() => {
-    const showcaseLimit = mobileFxLite ? 1 : 5;
+    if (liteMode) return [];
 
     const values = [
-      ...showcases.slice(0, showcaseLimit).map((item) => item.embed),
-      ...showcases.slice(0, showcaseLimit).map((item) => getVideoUrl(item.embed)),
-      ...(mobileFxLite ? [] : bigShowcases.map((item) => item.embed)),
-      ...(mobileFxLite ? [] : bigShowcases.map((item) => getVideoUrl(item.embed))),
+      ...showcases.slice(0, 2).map((item) => item.embed),
+      ...bigShowcases.slice(0, 1).map((item) => item.embed),
     ];
 
     return Array.from(new Set(values));
-  }, [mobileFxLite]);
+  }, [liteMode]);
 
   const openPanel = useCallback((next: Exclude<Panel, "none">) => {
     setPanel(next);
@@ -555,23 +551,28 @@ export default function PortfolioPage() {
   }, [discordStatus, statusLoaded]);
 
   useEffect(() => {
-    const updateMobileFxMode = () => {
-      const nav = navigator as Navigator & { deviceMemory?: number };
-      const isSmallScreen = window.matchMedia("(max-width: 760px)").matches;
+    const updateLiteMode = () => {
+      const nav = navigator as Navigator & {
+        deviceMemory?: number;
+        connection?: { saveData?: boolean };
+      };
+
+      const isSmallScreen = window.matchMedia("(max-width: 900px)").matches;
       const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
       const lowMemory = typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4;
-      const lowCores = typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency <= 6;
+      const lowCores = typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency <= 4;
+      const saveData = Boolean(nav.connection?.saveData);
 
-      setMobileFxLite(isSmallScreen || isCoarsePointer || lowMemory || lowCores);
+      setLiteMode(isSmallScreen || isCoarsePointer || lowMemory || lowCores || saveData || reduceMotion);
     };
 
-    updateMobileFxMode();
-    window.addEventListener("resize", updateMobileFxMode, { passive: true });
+    updateLiteMode();
+    window.addEventListener("resize", updateLiteMode, { passive: true });
 
     return () => {
-      window.removeEventListener("resize", updateMobileFxMode);
+      window.removeEventListener("resize", updateLiteMode);
     };
-  }, []);
+  }, [reduceMotion]);
 
   useEffect(() => {
     let active = true;
@@ -582,7 +583,6 @@ export default function PortfolioPage() {
         waitForFonts(),
         preloadImage(PROFILE_IMAGE_SRC),
         preloadImage(LOGO_IMAGE_SRC),
-        preloadAudio(BG_MUSIC_SRC),
         sleep(INITIAL_BOOT_MS),
       ]);
 
@@ -617,6 +617,25 @@ export default function PortfolioPage() {
   }, [musicEnabled]);
 
   useEffect(() => {
+    const setViewportHeight = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty("--app-vh", `${Math.round(height)}px`);
+    };
+
+    setViewportHeight();
+
+    window.addEventListener("resize", setViewportHeight, { passive: true });
+    window.visualViewport?.addEventListener("resize", setViewportHeight);
+    window.visualViewport?.addEventListener("scroll", setViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", setViewportHeight);
+      window.visualViewport?.removeEventListener("resize", setViewportHeight);
+      window.visualViewport?.removeEventListener("scroll", setViewportHeight);
+    };
+  }, []);
+
+  useEffect(() => {
     const links: HTMLLinkElement[] = [];
     let prefetchTimer = 0;
 
@@ -643,13 +662,14 @@ export default function PortfolioPage() {
     addLink({ rel: "dns-prefetch", href: "https://api.lanyard.rest" });
     addLink({ rel: "preload", href: PROFILE_IMAGE_SRC, as: "image" });
     addLink({ rel: "preload", href: LOGO_IMAGE_SRC, as: "image" });
-    addLink({ rel: "preload", href: BG_MUSIC_SRC, as: "audio" });
 
-    prefetchTimer = window.setTimeout(() => {
-      for (const href of preloadTargets) {
-        addLink({ rel: "prefetch", href });
-      }
-    }, 180);
+    if (!liteMode && preloadTargets.length > 0) {
+      prefetchTimer = window.setTimeout(() => {
+        for (const href of preloadTargets) {
+          addLink({ rel: "prefetch", href });
+        }
+      }, 300);
+    }
 
     return () => {
       window.clearTimeout(prefetchTimer);
@@ -660,217 +680,108 @@ export default function PortfolioPage() {
         }
       }
     };
-  }, [preloadTargets]);
+  }, [liteMode, preloadTargets]);
 
   useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
 
-    const desktopMotionFactor = reduceMotion ? 0.22 : 1;
-    const desktopParticleFactor = reduceMotion ? 0.26 : 1;
-    const desktopEaseFactor = reduceMotion ? 0.04 : 0.095;
-    const mobileMotionFactor = reduceMotion ? 0.08 : 0.18;
+    let raf = 0;
+    let targetX = 0;
+    let targetY = 0;
+    let currentX = 0;
+    let currentY = 0;
 
-    const state = {
-      targetX: 0,
-      targetY: 0,
-      currentX: 0,
-      currentY: 0,
-      cursorX: 0,
-      cursorY: 0,
-      cursorActive: false,
-      left: 0,
-      top: 0,
-      width: 1,
-      height: 1,
-      frameRaf: 0,
-      applyRaf: 0,
-      queued: false,
-    };
+    const ease = liteMode ? 1 : reduceMotion ? 0.16 : 0.1;
+    const motionScale = liteMode ? 0.14 : reduceMotion ? 0.18 : 1;
 
-    const updateRect = () => {
+    const updateRectAndPoint = (clientX: number, clientY: number) => {
       const rect = el.getBoundingClientRect();
-      state.left = rect.left;
-      state.top = rect.top;
-      state.width = Math.max(rect.width, 1);
-      state.height = Math.max(rect.height, 1);
-    };
+      const localX = clamp(clientX - rect.left, 0, rect.width || 1);
+      const localY = clamp(clientY - rect.top, 0, rect.height || 1);
 
-    const setCursorVars = (xPercent: number, yPercent: number) => {
-      el.style.setProperty("--cx", `${xPercent.toFixed(2)}%`);
-      el.style.setProperty("--cy", `${yPercent.toFixed(2)}%`);
-    };
+      targetX = (localX / Math.max(rect.width, 1) - 0.5) * 2;
+      targetY = (localY / Math.max(rect.height, 1) - 0.5) * 2;
 
-    const applyLiteMotion = () => {
-      state.queued = false;
+      el.style.setProperty("--cx", `${((localX / Math.max(rect.width, 1)) * 100).toFixed(2)}%`);
+      el.style.setProperty("--cy", `${((localY / Math.max(rect.height, 1)) * 100).toFixed(2)}%`);
 
-      const renderX = state.targetX * mobileMotionFactor;
-      const renderY = state.targetY * mobileMotionFactor;
-
-      el.style.setProperty("--mx", renderX.toFixed(4));
-      el.style.setProperty("--my", renderY.toFixed(4));
-    };
-
-    const queueLiteMotion = () => {
-      if (state.queued) return;
-      state.queued = true;
-      state.applyRaf = window.requestAnimationFrame(applyLiteMotion);
-    };
-
-    const syncFromClientPoint = (clientX: number, clientY: number) => {
-      updateRect();
-
-      const localX = clamp(clientX - state.left, 0, state.width);
-      const localY = clamp(clientY - state.top, 0, state.height);
-
-      state.targetX = (localX / state.width - 0.5) * 2;
-      state.targetY = (localY / state.height - 0.5) * 2;
-      state.cursorX = localX;
-      state.cursorY = localY;
-      state.cursorActive = true;
-
-      setCursorVars((localX / state.width) * 100, (localY / state.height) * 100);
-
-      if (mobileFxLite) {
-        queueLiteMotion();
+      if (liteMode) {
+        el.style.setProperty("--mx", (targetX * motionScale).toFixed(4));
+        el.style.setProperty("--my", (targetY * motionScale).toFixed(4));
       }
     };
 
     const resetMotion = () => {
-      state.targetX = 0;
-      state.targetY = 0;
-      state.cursorActive = false;
-      setCursorVars(50, 34);
+      targetX = 0;
+      targetY = 0;
+      el.style.setProperty("--cx", "50%");
+      el.style.setProperty("--cy", "34%");
 
-      if (mobileFxLite) {
+      if (liteMode) {
         el.style.setProperty("--mx", "0");
         el.style.setProperty("--my", "0");
       }
     };
 
-    const frame = (now: number) => {
-      state.currentX += (state.targetX - state.currentX) * desktopEaseFactor;
-      state.currentY += (state.targetY - state.currentY) * desktopEaseFactor;
+    const frame = () => {
+      currentX += (targetX - currentX) * ease;
+      currentY += (targetY - currentY) * ease;
 
-      const renderX = state.currentX * desktopMotionFactor;
-      const renderY = state.currentY * desktopMotionFactor;
+      el.style.setProperty("--mx", (currentX * motionScale).toFixed(4));
+      el.style.setProperty("--my", (currentY * motionScale).toFixed(4));
 
-      el.style.setProperty("--mx", renderX.toFixed(4));
-      el.style.setProperty("--my", renderY.toFixed(4));
-
-      const t = now * 0.001;
-      const repelRadius = Math.min(190, Math.max(120, state.width * 0.15));
-      const repelStrength = reduceMotion ? 10 : 42;
-
-      for (const node of particleRefs.current) {
-        if (!node) continue;
-
-        const baseDx = Number(node.dataset.dx ?? 0);
-        const baseDy = Number(node.dataset.dy ?? 0);
-        const leftPct = Number(node.dataset.leftpct ?? 50);
-        const topPct = Number(node.dataset.toppct ?? 50);
-        const phase = Number(node.dataset.phase ?? 0);
-        const size = Number(node.dataset.size ?? 3);
-
-        const dotX = (leftPct / 100) * state.width;
-        const dotY = (topPct / 100) * state.height;
-
-        const driftX = renderX * 20 * baseDx;
-        const driftY = renderY * 20 * baseDy;
-
-        const ambientX =
-          Math.sin(t * (0.46 + size * 0.022) + phase) * (2.9 + size * 0.62) * desktopParticleFactor;
-        const ambientY =
-          Math.cos(t * (0.61 + size * 0.026) + phase) * (2.5 + size * 0.58) * desktopParticleFactor;
-
-        let repelX = 0;
-        let repelY = 0;
-
-        if (state.cursorActive) {
-          const vx = dotX - state.cursorX;
-          const vy = dotY - state.cursorY;
-          const dist = Math.hypot(vx, vy) || 0.001;
-
-          if (dist < repelRadius) {
-            const force = Math.pow(1 - dist / repelRadius, 2) * repelStrength;
-            repelX = (vx / dist) * force;
-            repelY = (vy / dist) * force;
-          }
-        }
-
-        node.style.transform = `translate3d(${(driftX + ambientX + repelX).toFixed(2)}px, ${(driftY + ambientY + repelY).toFixed(2)}px, 0)`;
-      }
-
-      state.frameRaf = window.requestAnimationFrame(frame);
+      raf = window.requestAnimationFrame(frame);
     };
 
-    const supportsPointer = "PointerEvent" in window;
-
-    const handlePointerMove: EventListener = (event) => {
-      const e = event as PointerEvent;
-      syncFromClientPoint(e.clientX, e.clientY);
+    const handlePointerMove = (event: PointerEvent) => {
+      updateRectAndPoint(event.clientX, event.clientY);
     };
 
-    const handleMouseMove: EventListener = (event) => {
-      const e = event as MouseEvent;
-      syncFromClientPoint(e.clientX, e.clientY);
+    const handleMouseMove = (event: MouseEvent) => {
+      updateRectAndPoint(event.clientX, event.clientY);
     };
 
-    const handleTouchMove: EventListener = (event) => {
-      const e = event as TouchEvent;
-      const touch = e.touches[0];
+    const handleTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0];
       if (!touch) return;
-      syncFromClientPoint(touch.clientX, touch.clientY);
+      updateRectAndPoint(touch.clientX, touch.clientY);
     };
 
-    const handleReset: EventListener = () => {
-      resetMotion();
-    };
-
-    const handleResizeOrScroll: EventListener = () => {
-      updateRect();
-    };
-
-    updateRect();
-    setCursorVars(50, 34);
     el.style.setProperty("--mx", "0");
     el.style.setProperty("--my", "0");
+    el.style.setProperty("--cx", "50%");
+    el.style.setProperty("--cy", "34%");
 
-    if (!mobileFxLite && pageVisible) {
-      state.frameRaf = window.requestAnimationFrame(frame);
+    if (!liteMode && pageVisible) {
+      raf = window.requestAnimationFrame(frame);
     }
 
-    if (supportsPointer) {
+    if ("PointerEvent" in window) {
       window.addEventListener("pointermove", handlePointerMove, { passive: true });
     } else {
       window.addEventListener("mousemove", handleMouseMove, { passive: true });
     }
 
     window.addEventListener("touchmove", handleTouchMove, { passive: true });
-    window.addEventListener("touchend", handleReset, { passive: true });
-    window.addEventListener("touchcancel", handleReset, { passive: true });
-    window.addEventListener("blur", handleReset);
-    window.addEventListener("resize", handleResizeOrScroll);
-    window.addEventListener("scroll", handleResizeOrScroll, { passive: true });
+    window.addEventListener("touchend", resetMotion, { passive: true });
+    window.addEventListener("touchcancel", resetMotion, { passive: true });
+    window.addEventListener("blur", resetMotion);
 
     return () => {
-      if (supportsPointer) {
+      if ("PointerEvent" in window) {
         window.removeEventListener("pointermove", handlePointerMove);
       } else {
         window.removeEventListener("mousemove", handleMouseMove);
       }
 
       window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handleReset);
-      window.removeEventListener("touchcancel", handleReset);
-      window.removeEventListener("blur", handleReset);
-      window.removeEventListener("resize", handleResizeOrScroll);
-      window.removeEventListener("scroll", handleResizeOrScroll);
-
-      window.cancelAnimationFrame(state.frameRaf);
-      window.cancelAnimationFrame(state.applyRaf);
+      window.removeEventListener("touchend", resetMotion);
+      window.removeEventListener("touchcancel", resetMotion);
+      window.removeEventListener("blur", resetMotion);
+      window.cancelAnimationFrame(raf);
     };
-  }, [mobileFxLite, pageVisible, reduceMotion]);
+  }, [liteMode, pageVisible, reduceMotion]);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -880,6 +791,7 @@ export default function PortfolioPage() {
     const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
 
     document.body.style.overflow = "hidden";
+
     if (scrollbarWidth > 0) {
       document.body.style.paddingRight = `${scrollbarWidth}px`;
     }
@@ -896,7 +808,7 @@ export default function PortfolioPage() {
       return;
     }
 
-    if (mobileFxLite) return;
+    if (liteMode) return;
 
     const timer = window.setTimeout(() => {
       searchInputRef.current?.focus();
@@ -905,7 +817,7 @@ export default function PortfolioPage() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [panel, mobileFxLite]);
+  }, [panel, liteMode]);
 
   useEffect(() => {
     if (panel === "none") return;
@@ -936,9 +848,10 @@ export default function PortfolioPage() {
         panel === "showcase" &&
         document.activeElement !== searchInputRef.current
       ) {
-        const tag = (document.activeElement as HTMLElement | null)?.tagName?.toLowerCase();
+        const active = document.activeElement as HTMLElement | null;
+        const tag = active?.tagName?.toLowerCase();
         const isTypingField =
-          tag === "input" || tag === "textarea" || (document.activeElement as HTMLElement | null)?.isContentEditable;
+          tag === "input" || tag === "textarea" || Boolean(active?.isContentEditable);
 
         if (!isTypingField) {
           e.preventDefault();
@@ -984,94 +897,192 @@ export default function PortfolioPage() {
     if (!DISCORD_STATUS_ENABLED) return;
 
     let cancelled = false;
-    let timer = 0;
-    let failCount = 0;
-    let controller: AbortController | null = null;
+    let socket: WebSocket | null = null;
+    let heartbeatTimer = 0;
+    let reconnectTimer = 0;
+    let resyncTimer = 0;
+    let reconnectAttempt = 0;
+    let fetchController: AbortController | null = null;
 
-    const clearPending = () => {
-      if (timer) {
-        window.clearTimeout(timer);
-        timer = 0;
-      }
+    const applyPresence = (payload?: LanyardPresence) => {
+      const raw = String(payload?.discord_status ?? "offline").toLowerCase();
 
-      controller?.abort();
-      controller = null;
+      const nextStatus: DiscordPresence =
+        raw === "online" || raw === "idle" || raw === "dnd" ? raw : "offline";
+
+      setDiscordStatus(nextStatus);
+      setDiscordNote(getCustomStatusNote(payload?.activities));
+      setStatusLoaded(true);
     };
 
-    const schedule = (ms: number) => {
-      if (cancelled) return;
-      timer = window.setTimeout(() => {
-        void poll();
-      }, ms);
+    const clearHeartbeat = () => {
+      if (heartbeatTimer) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = 0;
+      }
     };
 
-    const poll = async (force = false) => {
-      if (cancelled) return;
+    const clearReconnect = () => {
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = 0;
+      }
+    };
 
-      if (!force && document.hidden) {
-        schedule(DISCORD_POLL_MS);
-        return;
+    const closeSocket = () => {
+      clearHeartbeat();
+
+      if (!socket) return;
+
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
       }
 
-      controller?.abort();
-      const currentController = new AbortController();
-      controller = currentController;
+      socket = null;
+    };
 
-      const timeoutId = window.setTimeout(() => {
-        currentController.abort();
-      }, 4500);
+    const fetchPresence = async () => {
+      fetchController?.abort();
+
+      const controller = new AbortController();
+      fetchController = controller;
 
       try {
         const res = await fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`, {
           cache: "no-store",
-          signal: currentController.signal,
+          signal: controller.signal,
           headers: {
             Accept: "application/json",
           },
         });
 
         if (!res.ok) {
-          throw new Error("Failed to fetch Discord status");
+          throw new Error("Failed to fetch Discord presence");
         }
 
         const data = (await res.json()) as {
-          data?: {
-            discord_status?: string;
-          };
+          data?: LanyardPresence;
         };
 
-        if (cancelled || currentController.signal.aborted) return;
+        if (cancelled || controller.signal.aborted) return;
 
-        const raw = String(data?.data?.discord_status ?? "offline").toLowerCase();
-        const nextStatus: DiscordPresence =
-          raw === "online" || raw === "idle" || raw === "dnd" ? raw : "offline";
-
-        failCount = 0;
-        setDiscordStatus(nextStatus);
-        setStatusLoaded(true);
-        schedule(DISCORD_POLL_MS);
+        applyPresence(data.data);
       } catch {
-        if (cancelled || currentController.signal.aborted) return;
-
-        failCount += 1;
+        if (cancelled || controller.signal.aborted) return;
         setStatusLoaded(true);
-
-        const retryDelay = Math.min(120000, 8000 * 2 ** Math.min(failCount, 3));
-        schedule(retryDelay);
       } finally {
-        window.clearTimeout(timeoutId);
-        if (controller === currentController) {
-          controller = null;
+        if (fetchController === controller) {
+          fetchController = null;
         }
       }
     };
 
-    void poll(true);
+    const sendHeartbeat = () => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ op: 3 }));
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+
+      clearReconnect();
+
+      const delay = Math.min(30000, 1500 * 2 ** Math.min(reconnectAttempt, 4));
+      reconnectAttempt += 1;
+
+      reconnectTimer = window.setTimeout(() => {
+        void fetchPresence();
+        connectSocket();
+      }, delay);
+    };
+
+    const connectSocket = () => {
+      if (cancelled || !("WebSocket" in window)) return;
+
+      closeSocket();
+
+      try {
+        socket = new WebSocket("wss://api.lanyard.rest/socket");
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onopen = () => {
+        reconnectAttempt = 0;
+      };
+
+      socket.onmessage = (event) => {
+        let message: LanyardSocketMessage | null = null;
+
+        try {
+          message = JSON.parse(event.data) as LanyardSocketMessage;
+        } catch {
+          return;
+        }
+
+        if (!message) return;
+
+        if (message.op === 1) {
+          const hello = message.d as { heartbeat_interval?: number } | undefined;
+          const heartbeatInterval =
+            typeof hello?.heartbeat_interval === "number"
+              ? Math.max(1000, hello.heartbeat_interval)
+              : 30000;
+
+          if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(
+              JSON.stringify({
+                op: 2,
+                d: { subscribe_to_id: DISCORD_USER_ID },
+              }),
+            );
+            sendHeartbeat();
+          }
+
+          clearHeartbeat();
+          heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatInterval);
+          return;
+        }
+
+        if (message.op === 0 && (message.t === "INIT_STATE" || message.t === "PRESENCE_UPDATE")) {
+          applyPresence(message.d as LanyardPresence);
+        }
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+
+      socket.onclose = () => {
+        if (cancelled) return;
+        clearHeartbeat();
+        scheduleReconnect();
+      };
+    };
+
+    void fetchPresence();
+    connectSocket();
+
+    resyncTimer = window.setInterval(() => {
+      if (!document.hidden) {
+        void fetchPresence();
+      }
+    }, 90000);
 
     const onVisibility = () => {
       if (!document.hidden) {
-        clearPending();
-        void poll(true);
+        void fetchPresence();
+
+        if (!socket || socket.readyState >= WebSocket.CLOSING) {
+          connectSocket();
+        }
       }
     };
 
@@ -1079,9 +1090,26 @@ export default function PortfolioPage() {
 
     return () => {
       cancelled = true;
-      clearPending();
+
       document.removeEventListener("visibilitychange", onVisibility);
+
+      if (resyncTimer) {
+        window.clearInterval(resyncTimer);
+      }
+
+      clearReconnect();
+      fetchController?.abort();
+      closeSocket();
     };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.loop = true;
+    audio.preload = "metadata";
+    audio.volume = 0;
   }, []);
 
   useEffect(() => {
@@ -1127,6 +1155,8 @@ export default function PortfolioPage() {
       fadeFrameRef.current = window.requestAnimationFrame(tick);
     };
 
+    const targetVolume = liteMode ? Math.min(BG_MUSIC_VOLUME, 0.1) : BG_MUSIC_VOLUME;
+
     const startMusic = () => {
       if (!musicEnabled || disposed || !pageVisible) return;
 
@@ -1134,7 +1164,7 @@ export default function PortfolioPage() {
 
       if (!audio.paused) {
         setMusicUnlocked(true);
-        fadeVolume(audio.volume, BG_MUSIC_VOLUME, 220);
+        fadeVolume(audio.volume, targetVolume, 180);
         return;
       }
 
@@ -1151,7 +1181,7 @@ export default function PortfolioPage() {
           .then(() => {
             if (disposed) return;
             setMusicUnlocked(true);
-            fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 480);
+            fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 320);
           })
           .catch(() => {
             if (disposed) return;
@@ -1159,7 +1189,7 @@ export default function PortfolioPage() {
           });
       } else {
         setMusicUnlocked(true);
-        fadeVolume(Math.max(audio.volume, 0.001), BG_MUSIC_VOLUME, 480);
+        fadeVolume(Math.max(audio.volume, 0.001), targetVolume, 320);
       }
     };
 
@@ -1168,19 +1198,13 @@ export default function PortfolioPage() {
 
       if (audio.paused && audio.volume <= 0.001) return;
 
-      fadeVolume(audio.volume, 0, 260);
+      fadeVolume(audio.volume, 0, 220);
 
       pauseTimer = window.setTimeout(() => {
         if (disposed) return;
         audio.pause();
-        audio.currentTime = 0;
-      }, 290);
+      }, 240);
     };
-
-    audio.loop = true;
-    audio.preload = "auto";
-    audio.volume = 0;
-    audio.load();
 
     if (musicEnabled && pageVisible) {
       startMusic();
@@ -1203,7 +1227,7 @@ export default function PortfolioPage() {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     };
-  }, [musicEnabled, pageVisible]);
+  }, [musicEnabled, pageVisible, liteMode]);
 
   useEffect(() => {
     return () => {
@@ -1219,51 +1243,21 @@ export default function PortfolioPage() {
 
   return (
     <main
-      className={`page-shell ${pageReady ? "ready" : "booting"} ${mobileFxLite ? "mobile-lite" : ""}`}
+      className={`page-shell ${pageReady ? "ready" : "booting"} ${liteMode ? "lite-mode" : ""}`}
       ref={shellRef}
     >
-      <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" playsInline />
+      <audio ref={audioRef} src={BG_MUSIC_SRC} aria-hidden="true" playsInline preload="metadata" />
 
       <div className="bg-aurora aurora-layer" />
       <div className="bg-beams beams-layer" />
-      <div className="bg-depth depth-layer" />
-      <div className="bg-spotlight spotlight-layer" />
       <div className="bg-grid grid-layer" />
-      <div className="bg-network network-layer" />
-
-      <div className="bg-sword-wrap sword-layer" aria-hidden="true">
-        <div className="sword-stage">
-          <div className="sword-aura aura-1" />
-          <div className="sword-aura aura-2" />
-          <div className="sword-ring ring-1" />
-          <div className="sword-ring ring-2" />
-          <div className="sword-glow" />
-
-          <div className="sword">
-            <span className="blade" />
-            <span className="blade-shine" />
-            <span className="edge" />
-            <span className="guard" />
-            <span className="grip" />
-            <span className="pommel" />
-          </div>
-        </div>
-      </div>
+      <div className="bg-spotlight spotlight-layer" />
 
       <div className="bg-particles" aria-hidden="true">
         {particleDots.map((dot, index) => (
           <span
             key={`${dot.left}-${dot.top}-${index}`}
-            ref={(el) => {
-              particleRefs.current[index] = el;
-            }}
             className="dynamic-particle"
-            data-dx={dot.dx}
-            data-dy={dot.dy}
-            data-leftpct={dot.leftPct}
-            data-toppct={dot.topPct}
-            data-phase={dot.phase}
-            data-size={dot.size}
             style={
               {
                 left: dot.left,
@@ -1274,6 +1268,8 @@ export default function PortfolioPage() {
                 animationDuration: dot.duration,
                 "--blur": `${dot.blur}px`,
                 "--opacity-base": dot.opacity,
+                "--drift-x": `${dot.driftX}px`,
+                "--drift-y": `${dot.driftY}px`,
               } as CSSVars
             }
           />
@@ -1331,9 +1327,22 @@ export default function PortfolioPage() {
                 setAvatarIndex((prev) => (prev < avatarSources.length - 1 ? prev + 1 : prev));
               }}
             />
-            <div className={`badge badge-${discordStatus}`} aria-live="polite" aria-busy={!statusLoaded}>
-              <span className="dot" />
-              {statusText}
+
+            <div className="presence-stack">
+              <div
+                className={`badge badge-${discordStatus}`}
+                aria-live="polite"
+                aria-busy={!statusLoaded}
+              >
+                <span className="dot" />
+                {statusText}
+              </div>
+
+              {discordNote && (
+                <div className="note-badge" title={discordNote}>
+                  {discordNote}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1527,7 +1536,7 @@ export default function PortfolioPage() {
                         <VideoEmbed
                           title={item.title}
                           src={item.embed}
-                          eager={!mobileFxLite && index === 0}
+                          eager={!liteMode && index === 0}
                         />
 
                         <div className="big-showcase-copy">
@@ -1651,6 +1660,7 @@ export default function PortfolioPage() {
         }
 
         body {
+          margin: 0;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.16) rgba(255, 255, 255, 0.03);
         }
@@ -1667,6 +1677,10 @@ export default function PortfolioPage() {
           background: rgba(255, 255, 255, 0.16);
           border-radius: 999px;
         }
+
+        * {
+          box-sizing: border-box;
+        }
       `}</style>
 
       <style jsx>{`
@@ -1674,23 +1688,13 @@ export default function PortfolioPage() {
           position: relative;
           min-height: 100vh;
           overflow: hidden;
-          background: radial-gradient(circle at 50% 0%, #090909 0%, #040404 34%, #000 100%);
+          background: radial-gradient(circle at 50% 0%, #090909 0%, #040404 36%, #000 100%);
           color: #fff;
           isolation: isolate;
-          perspective: 1400px;
           --mx: 0;
           --my: 0;
           --cx: 50%;
           --cy: 34%;
-        }
-
-        .page-shell,
-        .panel,
-        .video-frame,
-        .avatar,
-        .dynamic-particle {
-          backface-visibility: hidden;
-          transform: translateZ(0);
         }
 
         .page-shell.booting .top-stack,
@@ -1702,7 +1706,7 @@ export default function PortfolioPage() {
         .page-shell.ready .top-stack,
         .page-shell.ready .wrap {
           opacity: 1;
-          transition: opacity 0.36s ease;
+          transition: opacity 0.28s ease;
         }
 
         .page-loader {
@@ -1712,8 +1716,8 @@ export default function PortfolioPage() {
           display: grid;
           place-items: center;
           background: rgba(0, 0, 0, 0.62);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
         }
 
         .page-loader-card {
@@ -1764,299 +1768,78 @@ export default function PortfolioPage() {
           animation-delay: 0.24s;
         }
 
-        .aurora-layer,
-        .beams-layer,
-        .depth-layer,
-        .grid-layer,
-        .network-layer,
-        .sword-layer {
-          transform-origin: center;
-          transition: transform 70ms linear;
-          will-change: transform;
-        }
-
-        .aurora-layer {
-          transform: translate3d(calc(var(--mx) * 18px), calc(var(--my) * 14px), 0) scale(1.08);
-        }
-
-        .beams-layer {
-          transform: translate3d(calc(var(--mx) * 24px), calc(var(--my) * 16px), 0) scale(1.03);
-        }
-
-        .depth-layer {
-          transform: translate3d(calc(var(--mx) * 30px), calc(var(--my) * 22px), 0) scale(1.05);
-        }
-
-        .grid-layer {
-          transform: translate3d(calc(var(--mx) * 34px), calc(var(--my) * 24px), 0) scale(1.05);
-        }
-
-        .network-layer {
-          transform: translate3d(calc(var(--mx) * 44px), calc(var(--my) * 30px), 0) scale(1.06);
-        }
-
-        .sword-layer {
-          transform: translate3d(calc(var(--mx) * 36px), calc(var(--my) * 24px), 0)
-            rotate(calc(var(--mx) * 5deg));
-        }
-
         .bg-aurora,
         .bg-beams,
-        .bg-depth,
-        .bg-spotlight,
         .bg-grid,
-        .bg-network,
-        .bg-sword-wrap,
+        .bg-spotlight,
         .bg-particles {
           position: absolute;
           inset: 0;
           pointer-events: none;
         }
 
+        .aurora-layer {
+          transform: translate3d(calc(var(--mx) * 18px), calc(var(--my) * 14px), 0);
+        }
+
+        .beams-layer {
+          transform: translate3d(calc(var(--mx) * 10px), calc(var(--my) * 8px), 0);
+        }
+
+        .grid-layer {
+          transform: translate3d(calc(var(--mx) * 8px), calc(var(--my) * 8px), 0);
+        }
+
         .bg-aurora {
           background:
             radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.05), transparent 24%),
-            radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.025), transparent 20%),
-            radial-gradient(circle at 80% 24%, rgba(255, 255, 255, 0.02), transparent 18%);
-          background-repeat: no-repeat;
-          animation: auroraDrift 12s ease-in-out infinite alternate;
+            radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.025), transparent 20%),
+            radial-gradient(circle at 82% 22%, rgba(255, 255, 255, 0.02), transparent 18%);
+          animation: auroraDrift 14s ease-in-out infinite alternate;
         }
 
         .bg-beams {
-          opacity: 0.35;
+          opacity: 0.22;
           background:
-            linear-gradient(115deg, transparent 43%, rgba(255, 255, 255, 0.03) 49%, transparent 56%),
-            linear-gradient(67deg, transparent 42%, rgba(255, 255, 255, 0.02) 49%, transparent 56%);
-          background-size: 480px 480px, 420px 420px;
-          animation: networkDrift 24s linear infinite;
-        }
-
-        .bg-depth {
-          background:
-            radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.06), transparent 20%),
-            radial-gradient(circle at 18% 38%, rgba(255, 255, 255, 0.04), transparent 22%),
-            radial-gradient(circle at 82% 32%, rgba(255, 255, 255, 0.035), transparent 20%);
-          opacity: 0.9;
-        }
-
-        .bg-spotlight {
-          opacity: 0.9;
-          background:
-            radial-gradient(420px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.08), transparent 58%),
-            radial-gradient(170px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.06), transparent 62%);
-          mix-blend-mode: screen;
-          transition: opacity 0.2s ease;
+            linear-gradient(115deg, transparent 44%, rgba(255, 255, 255, 0.03) 49%, transparent 55%),
+            linear-gradient(67deg, transparent 43%, rgba(255, 255, 255, 0.018) 49%, transparent 55%);
+          background-size: 420px 420px, 360px 360px;
+          animation: beamsDrift 20s linear infinite;
         }
 
         .bg-grid {
+          opacity: 0.14;
           background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1.2px);
           background-size: 24px 24px;
-          background-position: calc(50% + var(--mx) * 8px) calc(50% + var(--my) * 8px);
-          opacity: 0.18;
+          background-position: calc(50% + var(--mx) * 6px) calc(50% + var(--my) * 6px);
         }
 
-        .bg-network {
-          background-image:
-            linear-gradient(120deg, transparent 47%, rgba(255, 255, 255, 0.02) 48%, transparent 49%),
-            linear-gradient(58deg, transparent 47%, rgba(255, 255, 255, 0.015) 48%, transparent 49%);
-          background-size: 420px 420px, 380px 380px;
-          background-repeat: repeat;
-          opacity: 0.08;
-          animation: networkDrift 18s linear infinite;
-        }
-
-        .bg-sword-wrap {
-          display: grid;
-          place-items: center;
-        }
-
-        .sword-stage {
-          width: 100%;
-          height: 100%;
-          transform-origin: center;
-        }
-
-        .sword-aura,
-        .sword-ring,
-        .sword-glow,
-        .sword {
-          position: absolute;
-          left: 50%;
-          top: 52%;
-          transform: translate(-50%, -50%);
-        }
-
-        .sword-aura {
-          width: 120px;
-          height: 860px;
-          border-radius: 999px;
-          filter: blur(42px);
-          opacity: 0.24;
+        .bg-spotlight {
+          background:
+            radial-gradient(420px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.08), transparent 58%),
+            radial-gradient(150px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.05), transparent 62%);
           mix-blend-mode: screen;
-        }
-
-        .aura-1 {
-          background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.06),
-            rgba(255, 255, 255, 0.11),
-            rgba(255, 255, 255, 0.03)
-          );
-          animation: animeAuraOne 3.8s ease-in-out infinite;
-        }
-
-        .aura-2 {
-          background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.03),
-            rgba(255, 255, 255, 0.08),
-            rgba(255, 255, 255, 0.02)
-          );
-          animation: animeAuraTwo 4.6s ease-in-out infinite;
-        }
-
-        .sword-ring {
-          border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          opacity: 0.22;
-        }
-
-        .ring-1 {
-          width: 240px;
-          height: 900px;
-          animation: animeRingOne 3.6s ease-in-out infinite;
-        }
-
-        .ring-2 {
-          width: 180px;
-          height: 780px;
-          animation: animeRingTwo 3.2s ease-in-out infinite;
-        }
-
-        .sword-glow {
-          width: 56px;
-          height: 820px;
-          border-radius: 999px;
-          background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.05),
-            rgba(255, 255, 255, 0.24),
-            rgba(255, 255, 255, 0.05)
-          );
-          filter: blur(58px);
-          opacity: 0.82;
-          animation: swordGlowPulse 2.8s ease-in-out infinite;
-        }
-
-        .sword {
-          width: 240px;
-          height: 860px;
-          opacity: 0.36;
-          animation: animeSwordFloat 4.8s cubic-bezier(0.45, 0.04, 0.2, 0.98) infinite;
-        }
-
-        .blade,
-        .blade-shine,
-        .edge,
-        .guard,
-        .grip,
-        .pommel {
-          position: absolute;
-          left: 50%;
-          transform: translateX(-50%);
-          display: block;
-        }
-
-        .blade {
-          top: 0;
-          width: 28px;
-          height: 560px;
-          border-radius: 18px 18px 8px 8px;
-          background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.95),
-            rgba(205, 205, 205, 0.46) 56%,
-            rgba(20, 20, 20, 0.72)
-          );
-          box-shadow: 0 0 34px rgba(255, 255, 255, 0.16);
-        }
-
-        .blade-shine {
-          top: 28px;
-          width: 7px;
-          height: 500px;
-          border-radius: 999px;
-          background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0),
-            rgba(255, 255, 255, 0.92),
-            rgba(255, 255, 255, 0)
-          );
-          filter: blur(0.6px);
-          animation: bladeFlash 2.4s ease-in-out infinite;
-        }
-
-        .edge {
-          top: 12px;
-          width: 6px;
-          height: 520px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.92);
-        }
-
-        .guard {
-          top: 554px;
-          width: 150px;
-          height: 14px;
-          border-radius: 999px;
-          background: linear-gradient(
-            90deg,
-            rgba(20, 20, 20, 0.8),
-            rgba(255, 255, 255, 0.6),
-            rgba(20, 20, 20, 0.8)
-          );
-        }
-
-        .grip {
-          top: 578px;
-          width: 18px;
-          height: 180px;
-          border-radius: 999px;
-          background: linear-gradient(
-            180deg,
-            rgba(20, 20, 20, 0.95),
-            rgba(70, 70, 70, 0.8),
-            rgba(10, 10, 10, 0.95)
-          );
-        }
-
-        .pommel {
-          top: 776px;
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          background: radial-gradient(circle, rgba(255, 255, 255, 0.45), rgba(18, 18, 18, 0.95));
+          opacity: 0.9;
         }
 
         .bg-particles {
           overflow: hidden;
-          contain: layout paint;
         }
 
         .dynamic-particle {
           position: absolute;
           border-radius: 999px;
-          background: rgba(255, 255, 255, 0.96);
+          background: rgba(255, 255, 255, 0.95);
           box-shadow:
-            0 0 10px rgba(255, 255, 255, 0.28),
-            0 0 22px rgba(255, 255, 255, 0.08);
+            0 0 8px rgba(255, 255, 255, 0.2),
+            0 0 16px rgba(255, 255, 255, 0.06);
           filter: blur(var(--blur));
-          mix-blend-mode: screen;
-          animation-name: twinklePulse;
-          animation-timing-function: ease-in-out;
-          animation-iteration-count: infinite;
-          will-change: transform, opacity;
+          opacity: var(--opacity-base);
+          animation:
+            twinklePulse ease-in-out infinite,
+            particleFloat linear infinite;
           transform: translate3d(0, 0, 0);
+          will-change: transform, opacity;
         }
 
         .top-stack {
@@ -2084,8 +1867,8 @@ export default function PortfolioPage() {
         .panel {
           border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(255, 255, 255, 0.05);
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
           box-shadow: 0 18px 55px rgba(0, 0, 0, 0.55);
         }
 
@@ -2113,7 +1896,6 @@ export default function PortfolioPage() {
           position: relative;
           z-index: 1;
           transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
-          will-change: transform;
         }
 
         .tab-btn:hover {
@@ -2138,6 +1920,13 @@ export default function PortfolioPage() {
           justify-items: center;
           gap: 8px;
           max-width: 100%;
+        }
+
+        .presence-stack {
+          display: grid;
+          justify-items: center;
+          gap: 8px;
+          max-width: min(92vw, 420px);
         }
 
         .avatar {
@@ -2186,6 +1975,21 @@ export default function PortfolioPage() {
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.035);
           color: rgba(255, 255, 255, 0.72);
+        }
+
+        .note-badge {
+          max-width: 100%;
+          padding: 8px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          background: rgba(255, 255, 255, 0.03);
+          color: rgba(255, 255, 255, 0.66);
+          font-size: 11px;
+          font-weight: 760;
+          line-height: 1.35;
+          text-align: center;
+          word-break: break-word;
+          text-wrap: pretty;
         }
 
         .dot {
@@ -2269,7 +2073,6 @@ export default function PortfolioPage() {
         .cta-row,
         .skills,
         .toolbar-row,
-        .panel-head,
         .contact-actions,
         .tier-head,
         .tier-title-wrap {
@@ -2327,7 +2130,6 @@ export default function PortfolioPage() {
           background: rgba(255, 255, 255, 0.04);
           padding: 10px 14px;
           transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
-          will-change: transform;
         }
 
         .status-pill,
@@ -2371,7 +2173,7 @@ export default function PortfolioPage() {
         }
 
         .music-pill.music-off {
-          opacity: 0.7;
+          opacity: 0.72;
         }
 
         .skill-pill {
@@ -2445,7 +2247,6 @@ export default function PortfolioPage() {
             color 0.22s ease,
             border-color 0.22s ease,
             box-shadow 0.22s ease;
-          will-change: transform;
         }
 
         .main-btn::before,
@@ -2526,10 +2327,20 @@ export default function PortfolioPage() {
           overflow: hidden;
           text-align: left;
           box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+          transition:
+            transform 0.22s ease,
+            border-color 0.22s ease,
+            background 0.22s ease,
+            box-shadow 0.22s ease;
         }
 
         .feature-card::before,
-        .workflow-card::before {
+        .workflow-card::before,
+        .video-card::before,
+        .tier-card::before,
+        .info-card::before,
+        .policy-card::before,
+        .big-showcase-card::before {
           content: "";
           position: absolute;
           inset: 0;
@@ -2591,33 +2402,43 @@ export default function PortfolioPage() {
           z-index: 1;
         }
 
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 88px 24px 24px;
-  background: rgba(0, 0, 0, 0.9);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  animation: overlayIn 0.2s ease both;
-}
+        .overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 40;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: calc(88px + env(safe-area-inset-top, 0px)) 24px 24px;
+          background: rgba(0, 0, 0, 0.9);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          animation: overlayIn 0.2s ease both;
+        }
 
         .panel {
           position: relative;
-          width: min(1120px, 100%);
-          max-height: min(88dvh, 920px);
-          overflow: auto;
+          width: min(1120px, calc(100vw - 48px));
+          max-width: 100%;
+          max-height: min(
+            calc(var(--app-vh, 100dvh) - 120px - env(safe-area-inset-top, 0px)),
+            920px
+          );
+          min-height: 0;
+          margin: 0 auto;
+          overflow-x: hidden;
+          overflow-y: auto;
           border-radius: 30px;
           padding: 24px;
-          will-change: transform, opacity;
           box-shadow:
             0 26px 80px rgba(0, 0, 0, 0.58),
             inset 0 1px 0 rgba(255, 255, 255, 0.06);
           overscroll-behavior: contain;
-          scrollbar-gutter: stable both-edges;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-gutter: stable;
         }
 
         .panel-showcase {
@@ -2643,10 +2464,16 @@ export default function PortfolioPage() {
         }
 
         .panel-head {
-          position: relative;
-          z-index: 1;
+          position: sticky;
+          top: -24px;
+          z-index: 3;
+          display: flex;
+          align-items: center;
           justify-content: space-between;
+          gap: 10px;
           margin-bottom: 18px;
+          padding: 0 0 12px;
+          background: linear-gradient(to bottom, rgba(8, 8, 8, 0.98), rgba(8, 8, 8, 0.86), transparent);
         }
 
         .panel-head h2 {
@@ -2770,26 +2597,6 @@ export default function PortfolioPage() {
             border-color 0.22s ease,
             background 0.22s ease,
             box-shadow 0.22s ease;
-          content-visibility: auto;
-          contain-intrinsic-size: 320px;
-        }
-
-        .video-card::before,
-        .tier-card::before,
-        .info-card::before,
-        .policy-card::before,
-        .big-showcase-card::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(
-            140deg,
-            rgba(255, 255, 255, 0.025),
-            transparent 38%,
-            transparent 62%,
-            rgba(255, 255, 255, 0.015)
-          );
-          pointer-events: none;
         }
 
         .video-card:hover,
@@ -3070,6 +2877,27 @@ export default function PortfolioPage() {
           animation-delay: 0.18s;
         }
 
+        .lite-mode .bg-beams {
+          display: none;
+        }
+
+        .lite-mode .bg-spotlight {
+          opacity: 0.55;
+        }
+
+        .lite-mode .nav-shell,
+        .lite-mode .panel,
+        .lite-mode .page-loader {
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+
+        .lite-mode .dynamic-particle {
+          box-shadow:
+            0 0 5px rgba(255, 255, 255, 0.14),
+            0 0 10px rgba(255, 255, 255, 0.04);
+        }
+
         @keyframes rise {
           from {
             opacity: 0;
@@ -3126,18 +2954,18 @@ export default function PortfolioPage() {
           0% {
             background-position:
               50% 14%,
-              20% 30%,
-              80% 24%;
+              18% 30%,
+              82% 22%;
           }
           100% {
             background-position:
               53% 18%,
-              16% 36%,
-              84% 20%;
+              14% 34%,
+              86% 18%;
           }
         }
 
-        @keyframes networkDrift {
+        @keyframes beamsDrift {
           0% {
             background-position:
               0 0,
@@ -3145,96 +2973,8 @@ export default function PortfolioPage() {
           }
           100% {
             background-position:
-              -56px 34px,
-              34px -22px;
-          }
-        }
-
-        @keyframes animeSwordFloat {
-          0%,
-          100% {
-            transform: translate(-50%, -50%) rotate(-10deg) scale(1);
-          }
-          20% {
-            transform: translate(-49.3%, -53.4%) rotate(-5.5deg) scale(1.01);
-          }
-          50% {
-            transform: translate(-50.7%, -54.2%) rotate(-7.2deg) scale(1.015);
-          }
-          78% {
-            transform: translate(-49.4%, -51.8%) rotate(-4.2deg) scale(1.008);
-          }
-        }
-
-        @keyframes swordGlowPulse {
-          0%,
-          100% {
-            transform: translate(-50%, -50%) scaleY(1) scaleX(1);
-            opacity: 0.72;
-          }
-          50% {
-            transform: translate(-50%, -50%) scaleY(1.08) scaleX(1.14);
-            opacity: 0.9;
-          }
-        }
-
-        @keyframes animeAuraOne {
-          0%,
-          100% {
-            transform: translate(-50%, -50%) rotate(-12deg) scale(0.9);
-            opacity: 0.18;
-          }
-          50% {
-            transform: translate(-50%, -50%) rotate(-4deg) scale(1.08);
-            opacity: 0.3;
-          }
-        }
-
-        @keyframes animeAuraTwo {
-          0%,
-          100% {
-            transform: translate(-50%, -50%) rotate(6deg) scale(0.92);
-            opacity: 0.14;
-          }
-          50% {
-            transform: translate(-50%, -50%) rotate(-2deg) scale(1.05);
-            opacity: 0.24;
-          }
-        }
-
-        @keyframes animeRingOne {
-          0%,
-          100% {
-            transform: translate(-50%, -50%) rotate(-10deg) scale(0.94);
-            opacity: 0.12;
-          }
-          50% {
-            transform: translate(-50%, -50%) rotate(2deg) scale(1.04);
-            opacity: 0.24;
-          }
-        }
-
-        @keyframes animeRingTwo {
-          0%,
-          100% {
-            transform: translate(-50%, -50%) rotate(8deg) scale(0.96);
-            opacity: 0.1;
-          }
-          50% {
-            transform: translate(-50%, -50%) rotate(-6deg) scale(1.02);
-            opacity: 0.2;
-          }
-        }
-
-        @keyframes bladeFlash {
-          0%,
-          100% {
-            opacity: 0.24;
-            transform: translateX(-50%) translateY(0);
-          }
-          50% {
-            opacity: 0.95;
-            transform: translateX(-50%) translateY(-16px);
+              -44px 26px,
+              26px -18px;
           }
         }
 
@@ -3242,15 +2982,19 @@ export default function PortfolioPage() {
           0%,
           100% {
             opacity: calc(var(--opacity-base) * 0.52);
-            box-shadow:
-              0 0 8px rgba(255, 255, 255, 0.16),
-              0 0 14px rgba(255, 255, 255, 0.04);
           }
           50% {
             opacity: var(--opacity-base);
-            box-shadow:
-              0 0 14px rgba(255, 255, 255, 0.3),
-              0 0 24px rgba(255, 255, 255, 0.1);
+          }
+        }
+
+        @keyframes particleFloat {
+          0%,
+          100% {
+            transform: translate3d(0, 0, 0);
+          }
+          50% {
+            transform: translate3d(var(--drift-x), var(--drift-y), 0);
           }
         }
 
@@ -3260,7 +3004,7 @@ export default function PortfolioPage() {
             transform: translateY(0);
           }
           50% {
-            transform: translateY(-5px);
+            transform: translateY(-4px);
           }
         }
 
@@ -3279,34 +3023,13 @@ export default function PortfolioPage() {
           }
         }
 
-        @media (max-width: 760px), (pointer: coarse) {
-          .page-shell.mobile-lite {
-            perspective: none;
-          }
-
-          .page-shell.mobile-lite .bg-beams,
-          .page-shell.mobile-lite .bg-network,
-          .page-shell.mobile-lite .bg-sword-wrap {
-            display: none;
-          }
-
-          .page-shell.mobile-lite .nav-shell,
-          .page-shell.mobile-lite .panel,
-          .page-shell.mobile-lite .page-loader {
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-          }
-
-          .page-shell.mobile-lite .dynamic-particle {
-            box-shadow:
-              0 0 6px rgba(255, 255, 255, 0.18),
-              0 0 12px rgba(255, 255, 255, 0.05);
-          }
-        }
-
         @media (max-width: 760px) {
           .top-stack {
             top: 8px;
+          }
+
+          .top-center {
+            width: min(100%, calc(100% - 16px));
           }
 
           .wrap {
@@ -3341,28 +3064,44 @@ export default function PortfolioPage() {
             height: 52px;
           }
 
-@media (max-width: 760px) {
-  .overlay {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 76px 12px calc(12px + env(safe-area-inset-bottom, 0px));
-    overflow: hidden;
-  }
+          .overlay {
+            align-items: flex-start;
+            padding:
+              calc(76px + env(safe-area-inset-top, 0px))
+              12px
+              calc(12px + env(safe-area-inset-bottom, 0px));
+          }
 
-  .panel {
-    width: 100%;
-    max-height: calc(100dvh - 88px - env(safe-area-inset-bottom, 0px));
-    min-height: 0;
-    margin: 0 auto;
-    border-radius: 24px;
-    padding: 18px 18px calc(28px + env(safe-area-inset-bottom, 0px));
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
-  }
-}
+          .panel {
+            width: 100%;
+            max-height: calc(
+              var(--app-vh, 100dvh) - 88px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+            );
+            border-radius: 24px;
+            padding: 18px 18px calc(24px + env(safe-area-inset-bottom, 0px));
+          }
+
+          .panel-head {
+            top: -18px;
+          }
+
+          .toolbar-row {
+            align-items: stretch;
+          }
+
+          .search-shell {
+            min-width: 0;
+            max-width: none;
+          }
+
+          .toolbar-meta {
+            width: fit-content;
+          }
+
+          .note-badge {
+            font-size: 10px;
+          }
+        }
 
         @media (max-width: 520px) {
           .top-center {
