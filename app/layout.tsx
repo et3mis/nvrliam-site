@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "nvrliam",
-  description: "Portfolio ;)",
+  title: "nvrliam.lol",
+  description: "Portfolio for my Roblox scripting, development, and custom website work.",
 };
 
 export default function RootLayout({
