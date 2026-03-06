@@ -4,11 +4,13 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from "react";
+import NextImage from "next/image";
 import {
   ArrowUpRight,
   Boxes,
@@ -26,8 +28,8 @@ import {
   X,
 } from "lucide-react";
 
-type Panel = "none" | "showcase" | "commission";
-type NavTab = "home" | "showcase" | "commission";
+type Panel = "none" | "reviews" | "showcase" | "commission";
+type NavTab = "home" | "reviews" | "contact" | "showcase" | "commission";
 type DiscordPresence = "online" | "idle" | "dnd" | "offline";
 
 type ShowcaseItem = {
@@ -57,15 +59,17 @@ type PriceTier = {
   icon: "fix" | "mini" | "play" | "full" | "game";
 };
 
-type HomeFeature = {
-  title: string;
-  body: string;
-  icon: PriceTier["icon"] | "check";
-};
-
-type WorkflowStep = {
-  title: string;
-  body: string;
+type VouchItem = {
+  author: string;
+  tag: string;
+  handle: string;
+  userId?: string;
+  profileUrl: string;
+  date: string;
+  quote: string;
+  detail?: string;
+  proof?: string;
+  score: string;
 };
 
 type ParticleDot = {
@@ -119,14 +123,23 @@ const DISCORD_WS_URL = "wss://api.lanyard.rest/socket";
 const DISCORD_REST_URL = `https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`;
 
 const INITIAL_BOOT_MS = 650;
+const OPENING_SPLASH_MS = 2100;
+const BRAND_USERNAME = "@KING NVRLIAM";
+const ACTION_COOLDOWN_MS = 850;
 const BG_MUSIC_SRC = "/portfolio-music.mp3";
 const BG_MUSIC_VOLUME = 0.14;
 
 const EMAIL_ADDRESS = "liamj7872@gmail.com";
-const DISCORD_INVITE = "https://discord.gg/62nWRxRs";
+const DISCORD_INVITE = "https://discord.gg/HksCmNvHxk";
+const DISCORD_PROFILE_URL = `https://discord.com/users/${DISCORD_USER_ID}`;
+const DISCORD_HANDLE = "streoooo";
 const ROBLOX_PROFILE_URL = "https://www.roblox.com/users/4554029027/profile";
 
 const MUSIC_STORAGE_KEY = "portfolio_music_enabled_v7";
+const MUSIC_VOLUME_STORAGE_KEY = "portfolio_music_volume_v1";
+const DEV_SHOWCASES_STORAGE_KEY = "portfolio_showcases_v1";
+const DEV_VOUCHES_STORAGE_KEY = "portfolio_vouches_v2";
+const DEV_PASSWORD = "best scripter";
 const ASSET_VERSION = "20260302";
 const PROFILE_IMAGE_SRC = `/profile.png?v=${ASSET_VERSION}`;
 const LOGO_IMAGE_SRC = `/logo.png?v=${ASSET_VERSION}`;
@@ -160,7 +173,7 @@ const skills: SkillItem[] = [
   { label: "Python - Apprentice", mark: "Py", tone: "py" },
 ];
 
-const showcases: ShowcaseItem[] = [
+const defaultShowcases: ShowcaseItem[] = [
   { title: "R6 Movement", embed: "https://streamable.com/e/4d1k8n?autoplay=0&loop=0", desc: "Run, jump, smooth FOV." },
   { title: "Stamina Sprint", embed: "https://streamable.com/e/ea1hrw?autoplay=0&loop=0", desc: "Sprint, stamina, UI." },
   { title: "Interactive System", embed: "https://streamable.com/e/gwtmws?autoplay=0&loop=0", desc: "Prompt and interaction flow." },
@@ -189,41 +202,71 @@ const prices: PriceTier[] = [
   { title: "Full Game", usd: "$250+", robux: "71k+ R$", note: "Quote depends on scope.", icon: "game" },
 ];
 
-const homeFeatures: HomeFeature[] = [
+const defaultVouches: VouchItem[] = [
   {
-    title: "Stable Systems",
-    body: "Built to survive spam input, edge cases, respawns, and real player usage instead of only working in tests.",
-    icon: "full",
+    author: "Voidedd",
+    tag: "EDGE",
+    handle: "@voidedd",
+    profileUrl: DISCORD_PROFILE_URL,
+    date: "Feb 9, 2026",
+    quote: "Great scripting from @KING NVRLIAM with fast and clean delivery.",
+    detail: "Consistent quality and reliable execution.",
+    score: "5.0",
   },
   {
-    title: "Clean Structure",
-    body: "Organized logic, readable scripts, and cleaner integration so your project stays easy to expand later.",
-    icon: "mini",
+    author: "Vapix",
+    tag: "Owner - The Bronx Shootout (2.8M+)",
+    userId: "1352958517497167895",
+    handle: "ID 1352958517497167895",
+    profileUrl: "https://discord.com/users/1352958517497167895",
+    date: "Feb 16, 2026",
+    quote: "Big vouch to @KING NVRLIAM for explaining issues clearly and fixing them quickly.",
+    detail: "Strong recommendation for top-tier scripting.",
+    score: "5.0",
   },
   {
-    title: "Gameplay Polish",
-    body: "Smooth feedback, better presentation, and details that make systems feel premium in-game.",
-    icon: "play",
+    author: "Mo27",
+    tag: "BLGZ",
+    handle: "@mo27",
+    profileUrl: DISCORD_PROFILE_URL,
+    date: "Mar 1, 2026",
+    quote: "Massive vouch to @KING NVRLIAM. He is reliable, fast, and easy to work with.",
+    detail: "Even when busy, he still over-delivers and communicates well.",
+    score: "5.0",
   },
   {
-    title: "Long-Term Value",
-    body: "I fix root problems instead of stacking messy patches that break later.",
-    icon: "check",
-  },
-];
-
-const workflowSteps: WorkflowStep[] = [
-  {
-    title: "Plan",
-    body: "Clear scope first so features stay focused and do not spiral into a mess.",
+    author: "esse",
+    tag: "Verified Client",
+    handle: "@esse",
+    profileUrl: DISCORD_PROFILE_URL,
+    date: "Mar 1, 2026",
+    quote: "Vouch for @KING NVRLIAM. Fast work, reliable output, and strong quality.",
+    detail: "Highly recommended for production game systems.",
+    score: "5.0",
   },
   {
-    title: "Build",
-    body: "Systems stay modular, clean, and easy to maintain.",
+    author: "Suit Guy",
+    tag: "Community Manager (500K-1M)",
+    userId: "1148434561198461048",
+    handle: "ID 1148434561198461048",
+    profileUrl: "https://discord.com/users/1148434561198461048",
+    date: "Mar 3, 2026",
+    quote:
+      "@KING NVRLIAM is an experienced scripter who does not delay or mislead clients.",
+    detail:
+      "He catches issues others miss, works under pressure, and consistently improves core systems.",
+    score: "5.0",
   },
   {
-    title: "Stress Test",
-    body: "Spam, respawn, timing, and failure cases get thought through before delivery.",
+    author: "Vetro",
+    tag: "Vouched Client",
+    userId: "990993180071723048",
+    handle: "ID 990993180071723048",
+    profileUrl: "https://discord.com/users/990993180071723048",
+    date: "Mar 4, 2026",
+    quote: "I vouch for @KING NVRLIAM. He is fast, creative, skilled, and reliable.",
+    detail: "Reliable service and strong execution from start to finish.",
+    score: "5.0",
   },
 ];
 
@@ -310,6 +353,49 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function getVouchKey(item: Pick<VouchItem, "author" | "date" | "quote">) {
+  return `${item.author.trim().toLowerCase()}|${item.date.trim().toLowerCase()}|${item.quote.trim().toLowerCase()}`;
+}
+
+function normalizeVouch(item: VouchItem): VouchItem {
+  return {
+    ...item,
+    author: item.author?.trim() || "Client",
+    tag: item.tag?.trim() || "Client",
+    handle: item.handle?.trim() || "@client",
+    userId: item.userId?.trim() || undefined,
+    profileUrl: item.profileUrl?.trim() || DISCORD_PROFILE_URL,
+    date: item.date?.trim() || "Unknown date",
+    quote: item.quote?.trim() || "No review provided.",
+    detail: item.detail?.trim() || "",
+    proof: item.proof?.trim() || "",
+    score: item.score?.trim() || "5.0",
+  };
+}
+
+function mergeVouches(defaultList: VouchItem[], savedList: VouchItem[]) {
+  const byKey = new Map<string, VouchItem>();
+
+  for (const item of defaultList) {
+    const normalized = normalizeVouch(item);
+    byKey.set(getVouchKey(normalized), normalized);
+  }
+
+  for (const item of savedList) {
+    const normalized = normalizeVouch(item);
+    byKey.set(getVouchKey(normalized), normalized);
+  }
+
+  return Array.from(byKey.values());
+}
+
+function formatVouchQuote(quote: string) {
+  const clean = quote.trim() || "No review provided.";
+  const withMention = /@KING\s*NVRLIAM/i.test(clean) ? clean : `${clean} @KING NVRLIAM.`;
+  if (/^10\s*\/\s*10\./i.test(withMention)) return withMention;
+  return `10/10. ${withMention}`;
+}
+
 function clamp01(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
@@ -369,40 +455,43 @@ function usePageVisible() {
 function useInViewOnce<T extends Element>(enabled: boolean) {
   const ref = useRef<T | null>(null);
   const [inView, setInView] = useState(!enabled);
+  const isInView = !enabled || inView;
 
-  useEffect(() => {
-    if (!enabled) {
-      setInView(true);
-      return;
-    }
-
-    if (inView) return;
+  useLayoutEffect(() => {
+    if (!enabled || inView) return;
 
     const node = ref.current;
     if (!node) return;
 
     if (!("IntersectionObserver" in window)) {
-      setInView(true);
-      return;
+      const raf = requestAnimationFrame(() => setInView(true));
+      return () => cancelAnimationFrame(raf);
     }
+
+    let cancelled = false;
+    const handleHit = () => {
+      if (cancelled) return;
+      setInView(true);
+      observer.disconnect();
+    };
 
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0);
-        if (hit) {
-          setInView(true);
-          observer.disconnect();
-        }
+        if (hit) handleHit();
       },
       { rootMargin: "220px 0px" },
     );
 
     observer.observe(node);
 
-    return () => observer.disconnect();
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
   }, [enabled, inView]);
 
-  return { ref, inView };
+  return { ref, inView: isInView };
 }
 
 function VideoEmbed({
@@ -415,12 +504,9 @@ function VideoEmbed({
   eager: boolean;
 }) {
   const { ref, inView } = useInViewOnce<HTMLDivElement>(!eager);
-  const [loaded, setLoaded] = useState(false);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
 
-  useEffect(() => {
-    setLoaded(false);
-  }, [src]);
-
+  const loaded = loadedSrc === src;
   const shouldMount = eager || inView;
 
   return (
@@ -440,7 +526,7 @@ function VideoEmbed({
           allowFullScreen
           loading={eager ? "eager" : "lazy"}
           referrerPolicy="strict-origin-when-cross-origin"
-          onLoad={() => setLoaded(true)}
+          onLoad={() => setLoadedSrc(src)}
         />
       ) : (
         <div className="video-placeholder" aria-hidden="true" />
@@ -457,43 +543,66 @@ function TierIcon({ icon }: { icon: PriceTier["icon"] }) {
   return <Rocket className="mini" />;
 }
 
-function FeatureIcon({ icon }: { icon: HomeFeature["icon"] }) {
-  if (icon === "check") return <Check className="mini" />;
-  if (icon === "fix") return <Wrench className="mini" />;
-  if (icon === "mini") return <Boxes className="mini" />;
-  if (icon === "play") return <Gamepad2 className="mini" />;
-  if (icon === "full") return <Cpu className="mini" />;
-  return <Rocket className="mini" />;
-}
-
 export default function PortfolioPage() {
   const [panel, setPanel] = useState<Panel>("none");
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
 
   const [emailCopied, setEmailCopied] = useState(false);
+  const [estTime, setEstTime] = useState("04:51 PM");
   const [discordStatus, setDiscordStatus] = useState<DiscordPresence>(DISCORD_STATUS_ENABLED ? "offline" : "online");
   const [discordNote, setDiscordNote] = useState("");
   const [statusLoaded, setStatusLoaded] = useState(!DISCORD_STATUS_ENABLED);
 
   const [pageReady, setPageReady] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
-  const [musicUnlocked, setMusicUnlocked] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(BG_MUSIC_VOLUME);
+  const [showcaseItems, setShowcaseItems] = useState<ShowcaseItem[]>(defaultShowcases);
+  const [vouchItems, setVouchItems] = useState<VouchItem[]>(defaultVouches);
+  const [devOpen, setDevOpen] = useState(false);
+  const [devUnlocked, setDevUnlocked] = useState(false);
+  const [devPasswordInput, setDevPasswordInput] = useState("");
+  const [devError, setDevError] = useState("");
+  const [reviewQuery, setReviewQuery] = useState("");
+  const [reviewFilter, setReviewFilter] = useState<"all" | "5" | "4.5">("all");
+  const [atTop, setAtTop] = useState(true);
+  const [newShowcase, setNewShowcase] = useState<ShowcaseItem>({ title: "", embed: "", desc: "" });
+  const [newVouch, setNewVouch] = useState<VouchItem>({
+    author: "",
+    tag: "",
+    handle: "",
+    userId: "",
+    profileUrl: DISCORD_INVITE,
+    date: "",
+    quote: "",
+    detail: "",
+    score: "5.0",
+  });
   const [avatarIndex, setAvatarIndex] = useState(0);
   const [liteMode, setLiteMode] = useState(false);
+  const [hideTopProfile, setHideTopProfile] = useState(false);
+  const [homeTab, setHomeTab] = useState<"home" | "reviews" | "contact">("home");
+  const [contactBusy, setContactBusy] = useState(false);
+  const [bgPulse, setBgPulse] = useState({ x: 50, y: 45, key: 0 });
 
   const shellRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
+  const vouchesRef = useRef<HTMLDivElement | null>(null);
+  const contactRef = useRef<HTMLElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const fadeFrameRef = useRef<number | null>(null);
+  const lastScrollYRef = useRef(0);
+  const showcaseActionAtRef = useRef(0);
+  const vouchActionAtRef = useRef(0);
+  const contactActionAtRef = useRef(0);
 
   const reduceMotion = usePrefersReducedMotion();
   const pageVisible = usePageVisible();
   const modalOpen = panel !== "none";
-  const activeTab: NavTab = panel === "none" ? "home" : panel;
+  const activeTab: NavTab = panel === "none" ? homeTab : panel;
 
   const particleDots = useMemo(() => createParticleDots(liteMode ? 14 : 28), [liteMode]);
   const eagerShowcaseCount = liteMode ? 1 : 3;
@@ -503,11 +612,11 @@ export default function PortfolioPage() {
 
     return Array.from(
       new Set([
-        ...showcases.slice(0, 2).map((item) => item.embed),
+        ...showcaseItems.slice(0, 2).map((item) => item.embed),
         ...bigShowcases.slice(0, 1).map((item) => item.embed),
       ]),
     );
-  }, [liteMode]);
+  }, [liteMode, showcaseItems]);
 
   const openPanel = useCallback((next: Exclude<Panel, "none">) => {
     setPanel(next);
@@ -515,6 +624,23 @@ export default function PortfolioPage() {
 
   const closePanel = useCallback(() => {
     setPanel("none");
+    setHomeTab("home");
+  }, []);
+
+  const openReviewsPanel = useCallback(() => {
+    setPanel("reviews");
+  }, []);
+
+  const scrollToContact = useCallback(() => {
+    setPanel("none");
+    setHomeTab("contact");
+
+    const target = contactRef.current;
+    if (!target) return;
+
+    const navOffset = 132;
+    const top = Math.max(0, window.scrollY + target.getBoundingClientRect().top - navOffset);
+    window.scrollTo({ top, behavior: "smooth" });
   }, []);
 
   const copyEmail = useCallback(async () => {
@@ -547,16 +673,157 @@ export default function PortfolioPage() {
     }, 1200);
   }, []);
 
+  const unlockDevMode = useCallback(() => {
+    if (devPasswordInput.trim().toLowerCase() !== DEV_PASSWORD) {
+      setDevError("Wrong password.");
+      return;
+    }
+
+    setDevUnlocked(true);
+    setDevError("");
+    setDevPasswordInput("");
+  }, [devPasswordInput]);
+
+  const addShowcase = useCallback(() => {
+    const now = Date.now();
+    if (now - showcaseActionAtRef.current < ACTION_COOLDOWN_MS) return;
+
+    const title = newShowcase.title.trim();
+    const embed = newShowcase.embed.trim();
+    const desc = newShowcase.desc.trim();
+    if (!title || !embed || !desc) return;
+
+    const duplicate = showcaseItems.some(
+      (item) => item.embed.trim().toLowerCase() === embed.toLowerCase(),
+    );
+    if (duplicate) return;
+
+    showcaseActionAtRef.current = now;
+
+    setShowcaseItems((prev) => [{ title, embed, desc }, ...prev]);
+    setNewShowcase({ title: "", embed: "", desc: "" });
+  }, [newShowcase, showcaseItems]);
+
+  const addVouch = useCallback(() => {
+    const now = Date.now();
+    if (now - vouchActionAtRef.current < ACTION_COOLDOWN_MS) return;
+
+    const author = newVouch.author.trim();
+    const quote = newVouch.quote.trim();
+    if (!author || !quote) return;
+
+    const duplicate = vouchItems.some(
+      (item) =>
+        item.author.trim().toLowerCase() === author.toLowerCase() &&
+        item.quote.trim().toLowerCase() === quote.toLowerCase(),
+    );
+    if (duplicate) return;
+
+    vouchActionAtRef.current = now;
+
+    const userId = newVouch.userId?.trim() ?? "";
+    const profileUrl = userId ? `https://discord.com/users/${userId}` : newVouch.profileUrl.trim() || DISCORD_PROFILE_URL;
+
+    setVouchItems((prev) => [
+      {
+        author,
+        tag: newVouch.tag.trim() || "Client",
+        handle: newVouch.handle.trim() || `@${author.toLowerCase().replace(/\s+/g, "")}`,
+        userId,
+        profileUrl,
+        date: newVouch.date.trim() || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        quote,
+        detail: newVouch.detail?.trim() || "",
+        score: newVouch.score.trim() || "5.0",
+      },
+      ...prev,
+    ]);
+
+    setNewVouch({
+      author: "",
+      tag: "",
+      handle: "",
+      userId: "",
+      profileUrl: DISCORD_PROFILE_URL,
+      date: "",
+      quote: "",
+      detail: "",
+      score: "5.0",
+    });
+  }, [newVouch, vouchItems]);
+
   const filteredShowcases = useMemo(() => {
     const value = deferredQuery.trim().toLowerCase();
-    if (!value) return showcases;
+    if (!value) return showcaseItems;
 
-    return showcases.filter(
+    return showcaseItems.filter(
       (item) =>
         item.title.toLowerCase().includes(value) ||
         item.desc.toLowerCase().includes(value),
     );
-  }, [deferredQuery]);
+  }, [deferredQuery, showcaseItems]);
+
+  const dedupedVouchItems = useMemo(() => {
+    const byKey = new Map<string, VouchItem>();
+
+    for (const item of vouchItems) {
+      const author = item.author.trim().toLowerCase();
+      const quote = item.quote.trim().toLowerCase();
+      const key = `${author}|${quote}`;
+      if (!byKey.has(key)) byKey.set(key, item);
+    }
+
+    return Array.from(byKey.values());
+  }, [vouchItems]);
+
+  const reviewStats = useMemo(() => {
+    const total = dedupedVouchItems.length;
+    const average =
+      total === 0
+        ? 0
+        : dedupedVouchItems.reduce((sum, item) => sum + (Number(item.score) || 0), 0) / total;
+    return { total, average };
+  }, [dedupedVouchItems]);
+
+  const filteredReviews = useMemo(() => {
+    const queryValue = reviewQuery.trim().toLowerCase();
+
+    return dedupedVouchItems.filter((item) => {
+      const score = Number(item.score) || 0;
+      const matchesFilter =
+        reviewFilter === "all" ||
+        (reviewFilter === "5" && score >= 4.95) ||
+        (reviewFilter === "4.5" && score >= 4.5);
+
+      if (!matchesFilter) return false;
+      if (!queryValue) return true;
+
+      const haystack = `${item.author} ${item.tag} ${item.handle} ${item.quote} ${item.detail ?? ""}`.toLowerCase();
+      return haystack.includes(queryValue);
+    });
+  }, [dedupedVouchItems, reviewQuery, reviewFilter]);
+
+  const getVouchProfileUrl = useCallback((item: VouchItem) => {
+    if (item.userId && /^\d{17,20}$/.test(item.userId)) {
+      return `https://discord.com/users/${item.userId}`;
+    }
+
+    const match = `${item.handle} ${item.profileUrl}`.match(/\d{17,20}/);
+    if (match) return `https://discord.com/users/${match[0]}`;
+    if (item.profileUrl?.startsWith("https://")) return item.profileUrl;
+    return DISCORD_PROFILE_URL;
+  }, []);
+
+  const hasDirectVouchProfile = useCallback((item: VouchItem) => {
+    if (item.userId && /^\d{17,20}$/.test(item.userId)) return true;
+    return Boolean(`${item.handle} ${item.profileUrl}`.match(/\d{17,20}/));
+  }, []);
+
+  const getVouchAvatarUrl = useCallback((item: VouchItem) => {
+    const match = `${item.userId ?? ""} ${item.handle} ${item.profileUrl}`.match(/\d{17,20}/);
+    if (match) return `https://unavatar.io/discord/${match[0]}`;
+    return `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(item.author)}`;
+  }, []);
 
   const statusText = useMemo(() => {
     if (!statusLoaded) return "Checking status...";
@@ -599,7 +866,7 @@ export default function PortfolioPage() {
         waitForFonts(),
         preloadImage(PROFILE_IMAGE_SRC),
         preloadImage(LOGO_IMAGE_SRC),
-        sleep(INITIAL_BOOT_MS),
+        sleep(INITIAL_BOOT_MS + OPENING_SPLASH_MS),
       ]);
 
       if (!active) return;
@@ -623,6 +890,32 @@ export default function PortfolioPage() {
       const saved = window.localStorage.getItem(MUSIC_STORAGE_KEY);
       if (saved === "0") setMusicEnabled(false);
       if (saved === "1") setMusicEnabled(true);
+
+      const savedVolume = window.localStorage.getItem(MUSIC_VOLUME_STORAGE_KEY);
+      if (savedVolume !== null) {
+        const parsed = Number(savedVolume);
+        if (Number.isFinite(parsed)) {
+          setMusicVolume(clamp01(parsed));
+        }
+      }
+
+      const savedShowcases = window.localStorage.getItem(DEV_SHOWCASES_STORAGE_KEY);
+      if (savedShowcases) {
+        const parsed = JSON.parse(savedShowcases) as ShowcaseItem[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setShowcaseItems(parsed);
+        }
+      }
+
+      const savedVouches = window.localStorage.getItem(DEV_VOUCHES_STORAGE_KEY);
+      if (savedVouches) {
+        const parsed = JSON.parse(savedVouches) as VouchItem[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const allowedKeys = new Set(defaultVouches.map((entry) => getVouchKey(normalizeVouch(entry))));
+          const screenshotOnly = parsed.filter((entry) => allowedKeys.has(getVouchKey(normalizeVouch(entry))));
+          setVouchItems(mergeVouches(defaultVouches, screenshotOnly));
+        }
+      }
     } catch {}
   }, []);
 
@@ -631,6 +924,126 @@ export default function PortfolioPage() {
       window.localStorage.setItem(MUSIC_STORAGE_KEY, musicEnabled ? "1" : "0");
     } catch {}
   }, [musicEnabled]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MUSIC_VOLUME_STORAGE_KEY, clamp01(musicVolume).toFixed(2));
+    } catch {}
+  }, [musicVolume]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DEV_SHOWCASES_STORAGE_KEY, JSON.stringify(showcaseItems));
+    } catch {}
+  }, [showcaseItems]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DEV_VOUCHES_STORAGE_KEY, JSON.stringify(vouchItems));
+    } catch {}
+  }, [vouchItems]);
+
+  useEffect(() => {
+    const onHotkey = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        setDevOpen(true);
+      }
+    };
+
+    window.addEventListener("keydown", onHotkey);
+    return () => window.removeEventListener("keydown", onHotkey);
+  }, []);
+
+  useEffect(() => {
+    const updateTime = () => {
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+        timeZone: "America/New_York",
+      });
+      setEstTime(time);
+    };
+
+    updateTime();
+    const timer = window.setInterval(updateTime, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+
+    const applyScroll = () => {
+      const currentY = Math.max(window.scrollY, document.documentElement.scrollTop, document.body.scrollTop);
+      const delta = currentY - lastScrollYRef.current;
+      const goingDown = delta > 2;
+      const goingUp = delta < -2;
+      const pastThreshold = currentY > 88;
+      const isExactlyTop = currentY <= 2;
+      setAtTop(isExactlyTop);
+
+      if (panel === "none") {
+        const markerY = 180;
+        let nextTab: "home" | "reviews" | "contact" = "home";
+
+        if (contactRef.current) {
+          const contactRect = contactRef.current.getBoundingClientRect();
+          if (contactRect.top <= markerY && contactRect.bottom >= markerY) {
+            nextTab = "contact";
+          }
+        }
+
+        if (nextTab === "home" && vouchesRef.current) {
+          const reviewsRect = vouchesRef.current.getBoundingClientRect();
+          if (reviewsRect.top <= markerY && reviewsRect.bottom >= markerY) {
+            nextTab = "reviews";
+          }
+        }
+
+        setHomeTab((prev) => (prev === nextTab ? prev : nextTab));
+      }
+
+      if (!pastThreshold || isExactlyTop) {
+        setHideTopProfile(false);
+      } else if (goingDown) {
+        setHideTopProfile(true);
+      } else if (goingUp) {
+        setHideTopProfile(false);
+      }
+
+      lastScrollYRef.current = currentY;
+    };
+
+    const onScroll = () => {
+      if (frame !== 0) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        applyScroll();
+      });
+    };
+
+    lastScrollYRef.current = Math.max(window.scrollY, document.documentElement.scrollTop, document.body.scrollTop);
+    applyScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, [panel]);
+
+  const toggleMusicEnabled = useCallback(() => {
+    setMusicEnabled((prev) => {
+      const next = !prev;
+
+      if (next && musicVolume <= 0.001) {
+        setMusicVolume(BG_MUSIC_VOLUME);
+      }
+
+      return next;
+    });
+  }, [musicVolume]);
 
   useEffect(() => {
     const setViewportHeight = () => {
@@ -816,6 +1229,21 @@ export default function PortfolioPage() {
       window.cancelAnimationFrame(raf);
     };
   }, [liteMode, pageVisible, reduceMotion]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || reduceMotion) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const rect = shell.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 100;
+      const y = ((event.clientY - rect.top) / Math.max(rect.height, 1)) * 100;
+      setBgPulse({ x: clamp(x, 0, 100), y: clamp(y, 0, 100), key: Date.now() });
+    };
+
+    shell.addEventListener("pointerdown", onPointerDown, { passive: true });
+    return () => shell.removeEventListener("pointerdown", onPointerDown);
+  }, [reduceMotion]);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -1227,7 +1655,7 @@ export default function PortfolioPage() {
       fadeFrameRef.current = window.requestAnimationFrame(tick);
     };
 
-    const targetVolume = clamp01(liteMode ? Math.min(BG_MUSIC_VOLUME, 0.08) : BG_MUSIC_VOLUME);
+    const targetVolume = clamp01(liteMode ? Math.min(musicVolume, 0.08) : musicVolume);
 
     const startMusic = () => {
       if (!musicEnabled || disposed || !pageVisible) return;
@@ -1235,7 +1663,6 @@ export default function PortfolioPage() {
       clearPauseTimer();
 
       if (!audio.paused) {
-        setMusicUnlocked(true);
         fadeVolume(clamp01(audio.volume), targetVolume, 160);
         return;
       }
@@ -1252,15 +1679,10 @@ export default function PortfolioPage() {
         result
           .then(() => {
             if (disposed) return;
-            setMusicUnlocked(true);
             fadeVolume(clamp01(audio.volume), targetVolume, 300);
           })
-          .catch(() => {
-            if (disposed) return;
-            setMusicUnlocked(false);
-          });
+          .catch(() => {});
       } else {
-        setMusicUnlocked(true);
         fadeVolume(clamp01(audio.volume), targetVolume, 300);
       }
     };
@@ -1299,7 +1721,7 @@ export default function PortfolioPage() {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     };
-  }, [musicEnabled, pageVisible, liteMode]);
+  }, [musicEnabled, pageVisible, liteMode, musicVolume]);
 
   useEffect(() => {
     return () => {
@@ -1348,12 +1770,22 @@ export default function PortfolioPage() {
         ))}
       </div>
 
+      <div
+        key={bgPulse.key}
+        className="bg-pulse"
+        aria-hidden="true"
+        style={{ "--pulse-x": `${bgPulse.x}%`, "--pulse-y": `${bgPulse.y}%` } as CSSVars}
+      />
+
       {!pageReady && (
         <div className="page-loader" aria-hidden="true">
-          <div className="page-loader-card">
+          <div className="opening-loader-card">
             <Music2 className="mini loader-icon" />
-            <span className="page-loader-text">Loading...</span>
-            <span className="page-loader-dots">
+            <span className="opening-kicker"></span>
+            <h1 className="opening-name">{BRAND_USERNAME}</h1>
+            <span className="opening-sub">Initializing portfolio...</span>
+            <span className="opening-eq">
+              <span />
               <span />
               <span />
               <span />
@@ -1363,58 +1795,91 @@ export default function PortfolioPage() {
       )}
 
       <header className="top-stack reveal">
-        <div className="top-center">
-          <nav className="nav-shell" aria-label="Main">
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === "home" ? "is-active" : ""}`}
-              onClick={closePanel}
-            >
-              Home
-            </button>
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === "showcase" ? "is-active" : ""}`}
-              onClick={() => openPanel("showcase")}
-            >
-              Showcase
-            </button>
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === "commission" ? "is-active" : ""}`}
-              onClick={() => openPanel("commission")}
-            >
-              Commission Me
-            </button>
-          </nav>
+        <div className="top-stack-inner">
+          <div className="top-center">
+            <div className="top-nav-row">
+              <div className="music-icon-slot music-icon-slot-left" aria-hidden="true" />
 
-          <div className="top-profile">
-            <img
-              src={avatarSources[avatarIndex]}
-              alt="Profile"
-              className="avatar"
-              loading="eager"
-              decoding="async"
-              onError={() => {
-                setAvatarIndex((prev) => (prev < avatarSources.length - 1 ? prev + 1 : prev));
-              }}
-            />
+              <nav className="nav-shell" aria-label="Main">
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === "home" ? "is-active" : ""}`}
+                  onClick={closePanel}
+                >
+                  Home
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === "showcase" ? "is-active" : ""}`}
+                  onClick={() => openPanel("showcase")}
+                >
+                  Showcase
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === "reviews" ? "is-active" : ""}`}
+                  onClick={openReviewsPanel}
+                >
+                  Reviews
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === "contact" ? "is-active" : ""}`}
+                  onClick={scrollToContact}
+                >
+                  Contact
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === "commission" ? "is-active" : ""}`}
+                  onClick={() => openPanel("commission")}
+                >
+                  Commission Me
+                </button>
+              </nav>
 
-            <div className="presence-stack">
-              <div
-                className={`badge badge-${discordStatus}`}
-                aria-live="polite"
-                aria-busy={!statusLoaded}
-              >
-                <span className="dot" />
-                {statusText}
+              <div className="music-icon-slot">
+                <button
+                  type="button"
+                  className={`music-icon-btn ${atTop ? "is-visible" : "is-hidden"}`}
+                  onClick={toggleMusicEnabled}
+                  aria-label={musicEnabled ? "Turn music off" : "Turn music on"}
+                  aria-pressed={musicEnabled}
+                  title={musicEnabled ? "Music On" : "Music Off"}
+                  tabIndex={atTop ? 0 : -1}
+                  aria-hidden={!atTop}
+                >
+                  {musicEnabled ? <Volume2 className="mini" /> : <VolumeX className="mini" />}
+                </button>
               </div>
+            </div>
 
-              {discordNote && (
-                <div className="note-badge" title={discordNote}>
-                  {discordNote}
+            <div className={`top-profile ${hideTopProfile ? "is-hidden" : ""}`}>
+              <NextImage
+                src={avatarSources[avatarIndex]}
+                alt="Profile"
+                className="avatar"
+                width={56}
+                height={56}
+                unoptimized
+                priority
+                onError={() => {
+                  setAvatarIndex((prev) => (prev < avatarSources.length - 1 ? prev + 1 : prev));
+                }}
+              />
+
+              <div className="presence-stack">
+                <div className={`badge badge-${discordStatus}`} title={statusText}>
+                  <span className="dot" aria-hidden="true" />
+                  <span>{statusText}</span>
                 </div>
-              )}
+
+                {discordNote && (
+                  <div className="note-badge" title={discordNote}>
+                    {discordNote}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1431,26 +1896,11 @@ export default function PortfolioPage() {
 
           <p className="hero-copy reveal delay-2">
             I build Roblox systems that stay organized, perform well, and hold up under real use.
-            Smooth presentation, stable logic, and code that does not fall apart later.
+            Smooth presentation, stable logic, and code that will not fall apart later.
           </p>
 
-          <div className="status-row reveal delay-2">
-            <span className="status-pill">Commissions Open</span>
-            <span className="status-pill">Queue 0 / 3</span>
-            <span className="status-pill">Fast replies</span>
-            <button
-              type="button"
-              className={`status-pill music-pill ${musicEnabled ? "music-on" : "music-off"}`}
-              onClick={() => setMusicEnabled((prev) => !prev)}
-              aria-pressed={musicEnabled}
-            >
-              {musicEnabled ? <Volume2 className="mini" /> : <VolumeX className="mini" />}
-              {musicEnabled ? (musicUnlocked ? "Music On" : "Music Ready") : "Music Off"}
-            </button>
-          </div>
-
           <div className="discord-callout reveal delay-3">
-            <span>JOIN DISCORD SERVER FOR FULL PORTFOLIO</span>
+            <span>Join the Discord server to see the full portfolio</span>
             <a href={DISCORD_INVITE} target="_blank" rel="noreferrer noopener" className="discord-callout-btn">
               Join Server
             </a>
@@ -1506,39 +1956,308 @@ export default function PortfolioPage() {
             ))}
           </div>
 
-          <div className="feature-grid reveal delay-3">
-            {homeFeatures.map((item) => (
-              <article key={item.title} className="feature-card">
-                <div className="feature-icon">
-                  <FeatureIcon icon={item.icon} />
-                </div>
-                <h3>{item.title}</h3>
-                <p>{item.body}</p>
-              </article>
-            ))}
-          </div>
+          <section ref={vouchesRef} className="vouches-shell reveal delay-3" id="reviews">
+            <div className="section-title-row">
+              <span className="section-angle">&gt;</span>
+              <h2 className="section-title">
+                <span>What</span> Clients Say
+              </h2>
+            </div>
 
-          <div className="workflow-grid reveal delay-3">
-            {workflowSteps.map((step, index) => (
-              <article key={step.title} className="workflow-card">
-                <span className="workflow-num">0{index + 1}</span>
-                <h3>{step.title}</h3>
-                <p>{step.body}</p>
-              </article>
-            ))}
-          </div>
+            <div className="vouches-grid">
+              {dedupedVouchItems.slice(0, 3).map((item) => {
+                const profileUrl = getVouchProfileUrl(item);
+                const avatarUrl = getVouchAvatarUrl(item);
+                const profileLabel = hasDirectVouchProfile(item) ? "View Profile" : "Open Discord";
+                const quoteText = formatVouchQuote(item.quote);
+
+                return (
+                  <article key={`${item.author}-${item.date}`} className="vouch-card">
+                    <p className="vouch-quote">&quot;{quoteText}&quot;</p>
+                    {item.detail && <p className="vouch-detail">{item.detail}</p>}
+
+                    <div className="vouch-foot">
+                      <div className="vouch-profile">
+                        <span
+                          className={`vouch-avatar ${avatarUrl ? "has-image" : ""}`}
+                          aria-hidden="true"
+                          style={avatarUrl ? ({ backgroundImage: `url(${avatarUrl})` } as CSSProperties) : undefined}
+                        >
+                          {item.author.slice(0, 1).toUpperCase()}
+                        </span>
+                        <div>
+                          <h3>{item.author}</h3>
+                          <p className="vouch-role">{item.tag}</p>
+                        </div>
+                      </div>
+                      <span className="vouch-stars" aria-label={`Rating ${item.score} out of 5`}>
+                        ★★★★★
+                      </span>
+                    </div>
+                    <a href={profileUrl} target="_blank" rel="noreferrer noopener" className="vouch-link">
+                      {profileLabel}
+                    </a>
+                  </article>
+                );
+              })}
+            </div>
+
+            <a href={DISCORD_INVITE} target="_blank" rel="noreferrer noopener" className="vouches-more">
+              Read all reviews <ArrowUpRight className="mini" />
+            </a>
+          </section>
+
+          <section ref={contactRef} className="contact-shell reveal delay-3" id="contact">
+            <div className="section-title-row">
+              <span className="section-angle">&gt;</span>
+              <h2 className="section-title">Contact</h2>
+            </div>
+
+            <div className="contact-board">
+              <div className="contact-discord-row">
+                <div className="contact-discord-icon">
+                  <MessageCircle className="mini" />
+                </div>
+
+                <div className="contact-discord-meta">
+                  <span>DISCORD</span>
+                  <strong>Liam • {DISCORD_HANDLE}</strong>
+                  <small>EST • {estTime}</small>
+                </div>
+              </div>
+
+              <form
+                className="contact-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const now = Date.now();
+                  if (now - contactActionAtRef.current < ACTION_COOLDOWN_MS) return;
+                  contactActionAtRef.current = now;
+                  setContactBusy(true);
+                  window.open(DISCORD_PROFILE_URL, "_blank", "noopener,noreferrer");
+                  window.setTimeout(() => setContactBusy(false), 650);
+                }}
+              >
+                <div className="contact-field-grid">
+                  <label className="contact-field">
+                    <span>NAME</span>
+                    <input type="text" placeholder="Your name" />
+                  </label>
+
+                  <label className="contact-field">
+                    <span>EMAIL</span>
+                    <input type="email" placeholder="your@email.com" />
+                  </label>
+                </div>
+
+                <label className="contact-field contact-field-full">
+                  <span>MESSAGE</span>
+                  <textarea placeholder="Your message..." rows={6} />
+                </label>
+
+                <button type="submit" className="contact-send-btn" disabled={contactBusy}>
+                  <ArrowUpRight className="mini" /> {contactBusy ? "Opening..." : "Send Message"}
+                </button>
+              </form>
+
+              <p className="contact-footer">© 2026 Liam · {DISCORD_HANDLE}</p>
+            </div>
+          </section>
         </section>
       </div>
+
+      {devOpen && (
+        <div className="dev-overlay" onClick={() => setDevOpen(false)}>
+          <section className="dev-panel" onClick={(event) => event.stopPropagation()}>
+            {!devUnlocked ? (
+              <>
+                <div className="dev-terminal">
+                  <div className="dev-terminal-head">
+                    <span className="dev-dot red" />
+                    <span className="dev-dot amber" />
+                    <span className="dev-dot green" />
+                  </div>
+                  <div className="dev-terminal-body">
+                    <p>{"> profile: @KING NVRLIAM"}</p>
+                    <p>{"> mode: portfolio editor"}</p>
+                    <p>{"> showcase systems: live"} <span>ready</span></p>
+                    <p>{"> vouch records: synced"} <span>ready</span></p>
+                    <p>{"> top navigation: active"} <span>ready</span></p>
+                    <p>{"> background music: armed"} <span>ready</span></p>
+                    <p className="dev-access">[ACCESS LOCKED]</p>
+                  </div>
+                </div>
+
+                <div className="dev-auth">
+                  <h3>Creator Access</h3>
+                  <p>Press Ctrl + Shift + D any time to open your editor panel.</p>
+                  <input
+                    type="password"
+                    value={devPasswordInput}
+                    onChange={(event) => {
+                      setDevPasswordInput(event.target.value);
+                      if (devError) setDevError("");
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        unlockDevMode();
+                      }
+                    }}
+                    className="dev-input"
+                    placeholder="Enter password"
+                    aria-label="Dev mode password"
+                  />
+                  {devError && <p className="dev-error">{devError}</p>}
+                  <button type="button" className="dev-btn" onClick={unlockDevMode}>
+                    Unlock Edit Mode
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="dev-editor">
+                <div className="dev-editor-head">
+                  <div>
+                    <h3>Edit Mode</h3>
+                    <p>Manage showcases and vouches for @KING NVRLIAM.</p>
+                  </div>
+                  <button type="button" className="dev-btn ghost" onClick={() => setDevOpen(false)}>
+                    Close
+                  </button>
+                </div>
+
+                <div className="dev-grid">
+                  <section className="dev-card">
+                    <h4>Add Showcase</h4>
+                    <input
+                      className="dev-input"
+                      placeholder="Title"
+                      value={newShowcase.title}
+                      onChange={(event) => setNewShowcase((prev) => ({ ...prev, title: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Embed URL"
+                      value={newShowcase.embed}
+                      onChange={(event) => setNewShowcase((prev) => ({ ...prev, embed: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Short description"
+                      value={newShowcase.desc}
+                      onChange={(event) => setNewShowcase((prev) => ({ ...prev, desc: event.target.value }))}
+                    />
+                    <button type="button" className="dev-btn" onClick={addShowcase}>
+                      Add Showcase
+                    </button>
+                    <div className="dev-list">
+                      {showcaseItems.map((item) => (
+                        <div key={`${item.title}-${item.embed}`} className="dev-list-row">
+                          <span>{item.title}</span>
+                          <button
+                            type="button"
+                            className="dev-mini-btn"
+                            onClick={() => setShowcaseItems((prev) => prev.filter((entry) => entry.embed !== item.embed))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="dev-card">
+                    <h4>Add Vouch</h4>
+                    <input
+                      className="dev-input"
+                      placeholder="Author"
+                      value={newVouch.author}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, author: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Tag (for example: Project Manager)"
+                      value={newVouch.tag}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, tag: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Handle (for example: @name)"
+                      value={newVouch.handle}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, handle: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Discord User ID"
+                      value={newVouch.userId ?? ""}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, userId: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Profile URL"
+                      value={newVouch.profileUrl}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, profileUrl: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Date"
+                      value={newVouch.date}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, date: event.target.value }))}
+                    />
+                    <input
+                      className="dev-input"
+                      placeholder="Score (for example: 5.0)"
+                      value={newVouch.score}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, score: event.target.value }))}
+                    />
+                    <textarea
+                      className="dev-input dev-textarea"
+                      placeholder="Quote"
+                      value={newVouch.quote}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, quote: event.target.value }))}
+                    />
+                    <textarea
+                      className="dev-input dev-textarea"
+                      placeholder="Extra detail"
+                      value={newVouch.detail}
+                      onChange={(event) => setNewVouch((prev) => ({ ...prev, detail: event.target.value }))}
+                    />
+                    <button type="button" className="dev-btn" onClick={addVouch}>
+                      Add Vouch
+                    </button>
+                    <div className="dev-list">
+                      {dedupedVouchItems.map((item) => (
+                        <div key={`${item.author}-${item.date}-${item.quote}`} className="dev-list-row">
+                          <span>{item.author}</span>
+                          <button
+                            type="button"
+                            className="dev-mini-btn"
+                            onClick={() =>
+                              setVouchItems((prev) => prev.filter((entry) => !(entry.author === item.author && entry.quote === item.quote)))
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       {panel !== "none" && (
         <div className="overlay" onClick={closePanel}>
           <section
             ref={panelRef}
-            className={`panel ${panel === "showcase" ? "panel-showcase" : "panel-commission"} panel-opening`}
+            className={`panel ${panel === "showcase" ? "panel-showcase" : panel === "reviews" ? "panel-reviews" : "panel-commission"} panel-opening`}
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={panel === "showcase" ? "Showcase" : "Commission me"}
+            aria-label={panel === "showcase" ? "Showcase" : panel === "reviews" ? "Reviews" : "Commission me"}
           >
             <div className="panel-sheen" />
 
@@ -1647,6 +2366,122 @@ export default function PortfolioPage() {
                     ))}
                   </div>
                 </section>
+              </>
+            ) : panel === "reviews" ? (
+              <>
+                <div className="panel-head">
+                  <div>
+                    <p className="eyebrow">Reviews</p>
+                    <h2>Vouches & Testimonials</h2>
+                  </div>
+                  <button type="button" className="close-btn" onClick={closePanel} aria-label="Close">
+                    <X className="mini" />
+                  </button>
+                </div>
+
+                <section className="reviews-intro-block">
+                  <h3>Vouches / Testimonials</h3>
+                  <p className="reviews-big-warning">Vouches are new, so there are not a lot yet.</p>
+                  <p>
+                    This page logs real client feedback. Every completed project review will be kept here.
+                  </p>
+                  <p>Only verified client feedback is posted.</p>
+                  <p>Each review includes who posted it, what was delivered, when it was completed, and proof when available.</p>
+                  <p>
+                    Worked with me before and want to leave a vouch? Ping me or DM me directly.
+                  </p>
+                </section>
+
+                <div className="reviews-stat-row">
+                  <div className="reviews-stat-card">
+                    <strong>{reviewStats.total}</strong>
+                    <span>Total Reviews</span>
+                  </div>
+                  <div className="reviews-stat-card">
+                    <strong>{reviewStats.average.toFixed(2)}</strong>
+                    <span>Average Rating</span>
+                  </div>
+                </div>
+
+                <div className="reviews-toolbar">
+                  <input
+                    value={reviewQuery}
+                    onChange={(event) => setReviewQuery(event.target.value)}
+                    placeholder="Search reviews..."
+                    className="reviews-search"
+                    aria-label="Search reviews"
+                  />
+                  <button
+                    type="button"
+                    className={`reviews-filter ${reviewFilter === "all" ? "is-active" : ""}`}
+                    onClick={() => setReviewFilter("all")}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    className={`reviews-filter ${reviewFilter === "5" ? "is-active" : ""}`}
+                    onClick={() => setReviewFilter("5")}
+                  >
+                    5 Stars
+                  </button>
+                  <button
+                    type="button"
+                    className={`reviews-filter ${reviewFilter === "4.5" ? "is-active" : ""}`}
+                    onClick={() => setReviewFilter("4.5")}
+                  >
+                    4.5 Stars
+                  </button>
+                </div>
+
+                <div className="reviews-grid-panel">
+                  {filteredReviews.length > 0 ? (
+                    filteredReviews.map((item) => {
+                      const profileUrl = getVouchProfileUrl(item);
+                      const avatarUrl = getVouchAvatarUrl(item);
+                      const profileLabel = hasDirectVouchProfile(item) ? "View Profile" : "Open Discord";
+                      const quoteText = formatVouchQuote(item.quote);
+
+                      return (
+                        <article key={`${item.author}-${item.date}-${item.quote}`} className="review-panel-card">
+                          <p className="review-panel-quote">&quot;{quoteText}&quot;</p>
+                          {item.detail && <p className="review-panel-detail">{item.detail}</p>}
+
+                          <div className="review-panel-foot">
+                            <div className="vouch-profile">
+                              <span
+                                className={`vouch-avatar ${avatarUrl ? "has-image" : ""}`}
+                                aria-hidden="true"
+                                style={avatarUrl ? ({ backgroundImage: `url(${avatarUrl})` } as CSSProperties) : undefined}
+                              >
+                                {item.author.slice(0, 1).toUpperCase()}
+                              </span>
+                              <div>
+                                <h3>{item.author}</h3>
+                                <p className="vouch-role">{item.tag}</p>
+                              </div>
+                            </div>
+                            <span className="vouch-stars" aria-label={`Rating ${item.score} out of 5`}>
+                              ★★★★★
+                            </span>
+                          </div>
+
+                          <div className="review-panel-actions">
+                            <span className="review-panel-date">{item.date}</span>
+                            <a href={profileUrl} target="_blank" rel="noreferrer noopener" className="vouch-link">
+                              {profileLabel}
+                            </a>
+                          </div>
+                        </article>
+                      );
+                    })
+                  ) : (
+                    <div className="empty-card">
+                      <h3>No matching reviews</h3>
+                      <p>Try another keyword or filter.</p>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -1802,47 +2637,66 @@ export default function PortfolioPage() {
           position: relative;
           min-height: 100vh;
           overflow: hidden;
-          background: radial-gradient(circle at 50% 0%, #090909 0%, #040404 36%, #000 100%);
+          background:
+            radial-gradient(circle at 50% -10%, rgba(255, 255, 255, 0.1), transparent 34%),
+            radial-gradient(circle at 12% 22%, rgba(255, 255, 255, 0.05), transparent 38%),
+            radial-gradient(circle at 86% 26%, rgba(255, 255, 255, 0.06), transparent 42%),
+            linear-gradient(180deg, #090909 0%, #040404 38%, #000 100%);
           color: #fff;
           isolation: isolate;
           --mx: 0;
           --my: 0;
           --cx: 50%;
-          --cy: 34%;
+          --cy: 45%;
+          touch-action: pan-y;
         }
 
         .page-shell.booting .top-stack,
         .page-shell.booting .wrap {
           opacity: 0;
+          transform: translateY(10px) scale(0.995);
           pointer-events: none;
         }
 
         .page-shell.ready .top-stack,
         .page-shell.ready .wrap {
           opacity: 1;
-          transition: opacity 0.28s ease;
+          transform: translateY(0) scale(1);
+        }
+
+        .top-stack,
+        .wrap {
+          transition: opacity 0.55s ease, transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+          will-change: transform, opacity;
         }
 
         .page-loader {
           position: fixed;
           inset: 0;
-          z-index: 90;
+          z-index: 70;
           display: grid;
           place-items: center;
-          background: rgba(0, 0, 0, 0.62);
+          background:
+            radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0) 38%),
+            rgba(0, 0, 0, 0.88);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
+          animation: overlayIn 0.35s ease both;
         }
 
-        .page-loader-card {
-          display: inline-flex;
+        .opening-loader-card {
+          min-width: min(520px, calc(100vw - 36px));
+          display: grid;
+          justify-items: center;
           align-items: center;
           gap: 10px;
-          border-radius: 999px;
-          padding: 14px 18px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 22px;
+          padding: 20px 22px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
           background: rgba(255, 255, 255, 0.05);
-          box-shadow: 0 18px 55px rgba(0, 0, 0, 0.45);
+          box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+          text-align: center;
+          animation: splashEnter 0.45s cubic-bezier(0.2, 0.9, 0.2, 1) both;
         }
 
         .loader-icon,
@@ -1853,33 +2707,56 @@ export default function PortfolioPage() {
           color: rgba(255, 255, 255, 0.85);
         }
 
-        .page-loader-text {
-          font-size: 14px;
-          font-weight: 800;
+        .opening-kicker {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.16em;
+          font-weight: 820;
+          color: rgba(255, 255, 255, 0.65);
+        }
+
+        .opening-name {
+          margin: 0;
+          font-size: clamp(28px, 5vw, 52px);
+          line-height: 0.94;
+          letter-spacing: -0.03em;
+          font-weight: 930;
+          color: #fff;
+          text-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .opening-sub {
+          font-size: 13px;
+          font-weight: 760;
           color: rgba(255, 255, 255, 0.92);
         }
 
-        .page-loader-dots {
+        .opening-eq {
           display: inline-flex;
           align-items: center;
           gap: 6px;
         }
 
-        .page-loader-dots span {
+        .opening-eq span {
           width: 6px;
-          height: 6px;
+          height: 14px;
           border-radius: 999px;
           background: #fff;
-          opacity: 0.26;
-          animation: loaderPulse 0.9s ease-in-out infinite;
+          opacity: 0.4;
+          transform-origin: bottom center;
+          animation: eqBounce 0.72s ease-in-out infinite;
         }
 
-        .page-loader-dots span:nth-child(2) {
+        .opening-eq span:nth-child(2) {
           animation-delay: 0.12s;
         }
 
-        .page-loader-dots span:nth-child(3) {
+        .opening-eq span:nth-child(3) {
           animation-delay: 0.24s;
+        }
+
+        .opening-eq span:nth-child(4) {
+          animation-delay: 0.34s;
         }
 
         .bg-aurora,
@@ -1906,38 +2783,54 @@ export default function PortfolioPage() {
 
         .bg-aurora {
           background:
-            radial-gradient(circle at 50% 14%, rgba(255, 255, 255, 0.05), transparent 24%),
-            radial-gradient(circle at 18% 30%, rgba(255, 255, 255, 0.025), transparent 20%),
-            radial-gradient(circle at 82% 22%, rgba(255, 255, 255, 0.02), transparent 18%);
+            radial-gradient(circle at 52% 12%, rgba(255, 255, 255, 0.1), transparent 30%),
+            radial-gradient(circle at 18% 34%, rgba(255, 255, 255, 0.05), transparent 28%),
+            radial-gradient(circle at 84% 18%, rgba(255, 255, 255, 0.05), transparent 24%);
           animation: auroraDrift 14s ease-in-out infinite alternate;
         }
 
         .bg-beams {
-          opacity: 0.22;
+          opacity: 0.34;
           background:
-            linear-gradient(115deg, transparent 44%, rgba(255, 255, 255, 0.03) 49%, transparent 55%),
-            linear-gradient(67deg, transparent 43%, rgba(255, 255, 255, 0.018) 49%, transparent 55%);
+            linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.08) 50%, transparent 58%),
+            linear-gradient(67deg, transparent 42%, rgba(255, 255, 255, 0.06) 50%, transparent 58%);
           background-size: 420px 420px, 360px 360px;
           animation: beamsDrift 20s linear infinite;
         }
 
         .bg-grid {
-          opacity: 0.14;
-          background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1.2px);
+          opacity: 0.2;
+          background-image: radial-gradient(circle, rgba(255, 255, 255, 0.16) 1px, transparent 1.2px);
           background-size: 24px 24px;
           background-position: calc(50% + var(--mx) * 6px) calc(50% + var(--my) * 6px);
         }
 
         .bg-spotlight {
           background:
-            radial-gradient(420px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.08), transparent 58%),
-            radial-gradient(150px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.05), transparent 62%);
+            radial-gradient(460px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.12), transparent 60%),
+            radial-gradient(180px circle at var(--cx) var(--cy), rgba(255, 255, 255, 0.08), transparent 66%);
           mix-blend-mode: screen;
-          opacity: 0.9;
+          opacity: 0.8;
         }
 
         .bg-particles {
           overflow: hidden;
+        }
+
+        .bg-pulse {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: radial-gradient(
+            220px circle at var(--pulse-x) var(--pulse-y),
+            rgba(255, 255, 255, 0.18),
+            rgba(255, 255, 255, 0.08) 26%,
+            transparent 62%
+          );
+          mix-blend-mode: screen;
+          opacity: 0;
+          animation: pulseFade 0.7s ease-out both;
+          z-index: 1;
         }
 
         .dynamic-particle {
@@ -1967,13 +2860,82 @@ export default function PortfolioPage() {
           padding-top: env(safe-area-inset-top, 0px);
         }
 
+        .top-stack-inner {
+          position: relative;
+          width: min(1120px, calc(100% - 18px));
+          margin: 0 auto;
+          pointer-events: none;
+        }
+
         .top-center {
           pointer-events: auto;
-          width: min(1120px, calc(100% - 18px));
+          width: 100%;
           margin: 0 auto;
           display: grid;
           justify-items: center;
           gap: 10px;
+        }
+
+        .top-nav-row {
+          width: 100%;
+          display: grid;
+          grid-template-columns: 40px 1fr 40px;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 999px;
+          padding: 6px;
+          background: rgba(255, 255, 255, 0.03);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+          transition: transform 0.32s ease, box-shadow 0.32s ease, border-color 0.32s ease;
+        }
+
+        .music-icon-slot {
+          width: 40px;
+          height: 40px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .music-icon-slot-left {
+          visibility: hidden;
+          pointer-events: none;
+        }
+
+        .music-icon-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: 999px;
+          padding: 0;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+          pointer-events: auto;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(255, 255, 255, 0.9);
+          transition: transform 0.28s ease, background 0.28s ease, border-color 0.28s ease, opacity 0.28s ease;
+        }
+
+        .music-icon-btn.is-hidden {
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        .music-icon-btn.is-visible {
+          opacity: 1;
+        }
+
+        .music-icon-btn:hover {
+          transform: translateY(-1px);
+          border-color: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.1);
         }
 
         .nav-shell,
@@ -1995,6 +2957,11 @@ export default function PortfolioPage() {
           justify-content: center;
           position: relative;
           overflow: hidden;
+          border-color: rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          width: fit-content;
+          max-width: 100%;
+          transition: transform 0.28s ease, box-shadow 0.28s ease;
         }
 
         .tab-btn {
@@ -2008,7 +2975,7 @@ export default function PortfolioPage() {
           white-space: nowrap;
           position: relative;
           z-index: 1;
-          transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+          transition: transform 0.26s ease, background 0.26s ease, color 0.26s ease;
         }
 
         .tab-btn:hover {
@@ -2033,6 +3000,19 @@ export default function PortfolioPage() {
           justify-items: center;
           gap: 8px;
           max-width: 100%;
+          transition: opacity 0.24s ease, transform 0.24s ease, max-height 0.24s ease, margin 0.24s ease;
+          max-height: 180px;
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        .top-profile.is-hidden {
+          opacity: 0;
+          transform: translateY(-10px);
+          max-height: 0;
+          margin-top: -4px;
+          pointer-events: none;
+          overflow: hidden;
         }
 
         .presence-stack {
@@ -2412,31 +3392,64 @@ export default function PortfolioPage() {
           box-shadow: 0 14px 34px rgba(255, 255, 255, 0.12);
         }
 
-        .feature-grid,
-        .workflow-grid {
-          display: grid;
+        .vouches-shell {
+          margin-top: 30px;
+          width: min(1020px, 100%);
+          margin-left: auto;
+          margin-right: auto;
+          text-align: center;
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 22px;
+          background: rgba(255, 255, 255, 0.04);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+        }
+
+        .section-title-row {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           gap: 14px;
-          margin-top: 22px;
         }
 
-        .feature-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+        .section-angle {
+          color: rgba(255, 255, 255, 0.78);
+          font-size: clamp(26px, 3.2vw, 44px);
+          font-weight: 900;
+          line-height: 0.9;
         }
 
-        .workflow-grid {
+        .section-title {
+          margin: 0;
+          font-size: clamp(30px, 4vw, 54px);
+          letter-spacing: -0.01em;
+          font-weight: 900;
+          color: #f2f2f2;
+        }
+
+        .section-title span {
+          color: #fff;
+        }
+
+        .vouches-grid {
+          margin-top: 20px;
+          display: grid;
+          gap: 16px;
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
-        .feature-card,
-        .workflow-card {
-          border-radius: 24px;
+        .vouch-card {
+          border-radius: 18px;
           border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.04);
-          padding: 18px;
+          background: rgba(255, 255, 255, 0.03);
+          padding: 16px;
           position: relative;
           overflow: hidden;
           text-align: left;
-          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+          box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
           transition:
             transform 0.22s ease,
             border-color 0.22s ease,
@@ -2444,8 +3457,475 @@ export default function PortfolioPage() {
             box-shadow 0.22s ease;
         }
 
-        .feature-card::before,
-        .workflow-card::before,
+        .vouch-quote {
+          margin: 0;
+          line-height: 1.6;
+          color: rgba(243, 243, 243, 0.86);
+          font-style: italic;
+          font-size: 14px;
+          min-height: 96px;
+          position: relative;
+          z-index: 1;
+        }
+
+        .vouch-detail {
+          margin: 8px 0 0;
+          line-height: 1.6;
+          color: rgba(255, 255, 255, 0.58);
+          font-size: 13px;
+          min-height: 42px;
+        }
+
+        .vouch-foot {
+          margin-top: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .vouch-profile {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .vouch-avatar {
+          width: 30px;
+          height: 30px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.06);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 900;
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.92);
+          flex-shrink: 0;
+        }
+
+        .vouch-avatar.has-image {
+          color: transparent;
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          border-color: rgba(255, 255, 255, 0.26);
+        }
+
+        .vouch-head h3 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 900;
+        }
+
+        .vouch-role {
+          margin: 2px 0 0;
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.62);
+          letter-spacing: 0;
+          text-transform: none;
+          font-weight: 700;
+        }
+
+        .vouch-stars {
+          color: #fff;
+          font-size: 13px;
+          letter-spacing: 0.06em;
+          font-weight: 900;
+        }
+
+        .vouch-link {
+          margin-top: 10px;
+          display: inline-flex;
+          border-radius: 999px;
+          padding: 6px 11px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.05);
+          color: rgba(255, 255, 255, 0.9);
+          text-decoration: none;
+          font-size: 10px;
+          font-weight: 760;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          position: relative;
+          z-index: 1;
+        }
+
+        .vouches-more {
+          margin: 18px auto 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          color: rgba(255, 255, 255, 0.92);
+          text-decoration: none;
+          font-size: 14px;
+          font-weight: 760;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+
+        .contact-shell {
+          margin-top: 28px;
+          width: min(1020px, 100%);
+          margin-left: auto;
+          margin-right: auto;
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 22px;
+          text-align: center;
+          background: rgba(255, 255, 255, 0.04);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+        }
+
+        .contact-board {
+          margin-top: 18px;
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 18px;
+          display: grid;
+          gap: 14px;
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .contact-discord-row {
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.02);
+          min-height: 78px;
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 0 16px;
+        }
+
+        .contact-discord-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .contact-discord-meta {
+          display: grid;
+          gap: 3px;
+          text-align: left;
+        }
+
+        .contact-discord-meta span,
+        .contact-discord-meta small {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.58);
+          font-weight: 760;
+        }
+
+        .contact-discord-meta strong {
+          font-size: 24px;
+          line-height: 1.1;
+          color: #fff;
+          letter-spacing: -0.01em;
+          font-weight: 900;
+        }
+
+        .contact-form {
+          display: grid;
+          gap: 12px;
+        }
+
+        .contact-field-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+
+        .contact-field {
+          display: grid;
+          gap: 7px;
+          text-align: left;
+        }
+
+        .contact-field span {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.55);
+          font-weight: 760;
+        }
+
+        .contact-field input,
+        .contact-field textarea {
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.03);
+          color: #fff;
+          font: inherit;
+          padding: 12px 14px;
+          outline: none;
+          transition: border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .contact-field input::placeholder,
+        .contact-field textarea::placeholder {
+          color: rgba(255, 255, 255, 0.34);
+        }
+
+        .contact-field input:focus,
+        .contact-field textarea:focus {
+          border-color: rgba(255, 255, 255, 0.28);
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .contact-field-full {
+          grid-column: 1 / -1;
+        }
+
+        .contact-send-btn {
+          min-height: 50px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          font: inherit;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-size: 12px;
+          font-weight: 860;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .contact-send-btn:hover {
+          transform: translateY(-1px);
+          border-color: rgba(255, 255, 255, 0.24);
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .contact-send-btn:disabled {
+          opacity: 0.64;
+          transform: none;
+          cursor: not-allowed;
+        }
+
+        .contact-footer {
+          margin: 6px 0 0;
+          font-size: 12px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.44);
+        }
+
+        .dev-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 52;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 22px;
+          background: rgba(0, 0, 0, 0.82);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          animation: overlayIn 0.22s ease both;
+        }
+
+        .dev-panel {
+          width: min(980px, calc(100vw - 44px));
+          max-height: min(860px, calc(100vh - 44px));
+          overflow: auto;
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: linear-gradient(180deg, rgba(14, 14, 14, 0.95), rgba(8, 8, 8, 0.98));
+          box-shadow: 0 30px 80px rgba(0, 0, 0, 0.56);
+          padding: 18px;
+          display: grid;
+          gap: 16px;
+          animation: panelIn 0.24s cubic-bezier(0.18, 0.86, 0.24, 1) both;
+        }
+
+        .dev-terminal {
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 16px;
+          overflow: hidden;
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .dev-terminal-head {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          padding: 10px 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.03);
+        }
+
+        .dev-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          display: inline-block;
+        }
+
+        .dev-dot.red { background: #ff5f57; }
+        .dev-dot.amber { background: #febc2e; }
+        .dev-dot.green { background: #28c840; }
+
+        .dev-terminal-body {
+          font-family: "Consolas", "Courier New", monospace;
+          color: rgba(255, 255, 255, 0.88);
+          padding: 14px 12px;
+          line-height: 1.5;
+        }
+
+        .dev-terminal-body p {
+          margin: 0 0 6px;
+        }
+
+        .dev-terminal-body span {
+          color: rgba(255, 255, 255, 0.64);
+        }
+
+        .dev-access {
+          margin-top: 10px !important;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+        }
+
+        .dev-auth h3,
+        .dev-editor-head h3,
+        .dev-card h4 {
+          margin: 0;
+        }
+
+        .dev-auth p {
+          margin: 8px 0 10px;
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 13px;
+        }
+
+        .dev-editor-head p {
+          margin: 5px 0 0;
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.62);
+        }
+
+        .dev-input {
+          width: 100%;
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.05);
+          color: #fff;
+          font: inherit;
+          padding: 10px 12px;
+          transition: border-color 0.22s ease, background 0.22s ease;
+        }
+
+        .dev-input:focus {
+          border-color: rgba(255, 255, 255, 0.28);
+          background: rgba(255, 255, 255, 0.07);
+          outline: none;
+        }
+
+        .dev-input::placeholder {
+          color: rgba(255, 255, 255, 0.45);
+        }
+
+        .dev-textarea {
+          min-height: 72px;
+          resize: vertical;
+        }
+
+        .dev-error {
+          margin: 8px 0 0;
+          color: #ff8f8f;
+          font-size: 12px;
+        }
+
+        .dev-btn,
+        .dev-mini-btn {
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: rgba(255, 255, 255, 0.08);
+          color: #fff;
+          font: inherit;
+          font-weight: 760;
+          padding: 9px 12px;
+          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .dev-btn:hover,
+        .dev-mini-btn:hover {
+          transform: translateY(-1px);
+          border-color: rgba(255, 255, 255, 0.24);
+          background: rgba(255, 255, 255, 0.12);
+        }
+
+        .dev-btn.ghost {
+          background: rgba(255, 255, 255, 0.04);
+        }
+
+        .dev-editor {
+          display: grid;
+          gap: 12px;
+        }
+
+        .dev-editor-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .dev-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .dev-card {
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          padding: 12px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .dev-list {
+          display: grid;
+          gap: 6px;
+          max-height: 220px;
+          overflow: auto;
+        }
+
+        .dev-list-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+          align-items: center;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.03);
+          padding: 8px;
+        }
+
+        .dev-list-row span {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.84);
+        }
+
+        .vouch-card::before,
         .video-card::before,
         .tier-card::before,
         .info-card::before,
@@ -2462,54 +3942,6 @@ export default function PortfolioPage() {
             rgba(255, 255, 255, 0.015)
           );
           pointer-events: none;
-        }
-
-        .feature-icon {
-          width: 34px;
-          height: 34px;
-          border-radius: 12px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(255, 255, 255, 0.08);
-          position: relative;
-          z-index: 1;
-        }
-
-        .feature-card h3,
-        .workflow-card h3 {
-          margin: 14px 0 0;
-          font-size: 18px;
-          font-weight: 900;
-          position: relative;
-          z-index: 1;
-        }
-
-        .feature-card p,
-        .workflow-card p {
-          margin: 8px 0 0;
-          line-height: 1.7;
-          color: rgba(255, 255, 255, 0.58);
-          position: relative;
-          z-index: 1;
-        }
-
-        .workflow-num {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 44px;
-          height: 28px;
-          border-radius: 999px;
-          padding: 0 10px;
-          font-size: 12px;
-          font-weight: 900;
-          letter-spacing: 0.12em;
-          color: rgba(255, 255, 255, 0.9);
-          background: rgba(255, 255, 255, 0.07);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          position: relative;
-          z-index: 1;
         }
 
         .overlay {
@@ -2557,6 +3989,10 @@ export default function PortfolioPage() {
 
         .panel-commission {
           background: rgba(8, 8, 8, 0.96);
+        }
+
+        .panel-reviews {
+          background: rgba(9, 9, 9, 0.97);
         }
 
         .panel-sheen {
@@ -2638,6 +4074,197 @@ export default function PortfolioPage() {
           justify-content: flex-start;
         }
 
+        .reviews-intro-block {
+          position: relative;
+          z-index: 1;
+          margin: 10px auto 18px;
+          max-width: 800px;
+          border-radius: 20px;
+          padding: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          text-align: center;
+        }
+
+        .reviews-intro-block h3 {
+          margin: 0 0 10px;
+          font-size: clamp(18px, 3.2vw, 26px);
+          line-height: 1.15;
+          letter-spacing: 0.01em;
+          text-transform: uppercase;
+        }
+
+        .reviews-intro-block p {
+          margin: 8px 0 0;
+          line-height: 1.6;
+          color: rgba(255, 255, 255, 0.66);
+          font-size: 14px;
+        }
+
+        .reviews-big-warning {
+          margin: 0 0 10px !important;
+          font-size: clamp(18px, 3.5vw, 28px) !important;
+          line-height: 1.12 !important;
+          font-weight: 920;
+          letter-spacing: 0.01em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.96) !important;
+        }
+
+        .reviews-stat-row {
+          position: relative;
+          z-index: 1;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+
+        .reviews-stat-card {
+          border-radius: 16px;
+          padding: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          text-align: center;
+        }
+
+        .reviews-stat-card strong {
+          display: block;
+          font-size: clamp(20px, 4vw, 30px);
+          line-height: 1;
+          letter-spacing: -0.02em;
+        }
+
+        .reviews-stat-card span {
+          display: block;
+          margin-top: 7px;
+          font-size: 11px;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.56);
+        }
+
+        .reviews-toolbar {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+
+        .reviews-search {
+          flex: 1 1 220px;
+          min-height: 40px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.04);
+          color: #fff;
+          font: inherit;
+          padding: 0 12px;
+          outline: none;
+        }
+
+        .reviews-search::placeholder {
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .reviews-search:focus {
+          border-color: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.06);
+        }
+
+        .reviews-filter {
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.04);
+          color: rgba(255, 255, 255, 0.82);
+          border-radius: 999px;
+          min-height: 40px;
+          padding: 0 14px;
+          font-size: 12px;
+          font-weight: 760;
+          letter-spacing: 0.03em;
+          transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .reviews-filter:hover {
+          transform: translateY(-1px);
+          border-color: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .reviews-filter.is-active {
+          border-color: rgba(255, 255, 255, 0.26);
+          background: rgba(255, 255, 255, 0.14);
+          color: #fff;
+        }
+
+        .reviews-grid-panel {
+          position: relative;
+          z-index: 1;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .review-panel-card {
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          padding: 14px;
+          display: grid;
+          gap: 12px;
+        }
+
+        .review-panel-quote {
+          margin: 0;
+          font-size: 14px;
+          line-height: 1.7;
+          color: rgba(255, 255, 255, 0.92);
+        }
+
+        .review-panel-detail {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.55;
+          color: rgba(255, 255, 255, 0.56);
+        }
+
+        .review-panel-foot {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .review-panel-actions {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .review-panel-date {
+          color: rgba(255, 255, 255, 0.46);
+          font-size: 11px;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+        }
+
+        .review-proof-chip {
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.06);
+          color: rgba(255, 255, 255, 0.78);
+          font-size: 10px;
+          font-weight: 760;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          padding: 6px 9px;
+          white-space: nowrap;
+        }
+
         .toolbar-meta {
           border-radius: 999px;
           padding: 10px 14px;
@@ -2714,8 +4341,7 @@ export default function PortfolioPage() {
         .info-card:hover,
         .policy-card:hover,
         .big-showcase-card:hover,
-        .feature-card:hover,
-        .workflow-card:hover {
+        .vouch-card:hover {
           transform: translateY(-2px);
           border-color: rgba(255, 255, 255, 0.14);
           background: rgba(255, 255, 255, 0.05);
@@ -3039,6 +4665,43 @@ export default function PortfolioPage() {
           }
         }
 
+        @keyframes splashEnter {
+          from {
+            opacity: 0;
+            transform: translateY(16px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes eqBounce {
+          0%,
+          100% {
+            transform: scaleY(0.45);
+            opacity: 0.38;
+          }
+          50% {
+            transform: scaleY(1);
+            opacity: 1;
+          }
+        }
+
+        @keyframes pulseFade {
+          0% {
+            opacity: 0;
+            transform: scale(0.92);
+          }
+          25% {
+            opacity: 1;
+          }
+          100% {
+            opacity: 0;
+            transform: scale(1.04);
+          }
+        }
+
         @keyframes loaderPulse {
           0%,
           100% {
@@ -3123,8 +4786,12 @@ export default function PortfolioPage() {
           .commission-grid,
           .policy-grid,
           .big-showcase-card,
-          .workflow-grid,
-          .feature-grid {
+          .vouches-grid,
+          .reviews-grid-panel {
+            grid-template-columns: 1fr;
+          }
+
+          .contact-field-grid {
             grid-template-columns: 1fr;
           }
 
@@ -3138,13 +4805,45 @@ export default function PortfolioPage() {
             top: 8px;
           }
 
-          .top-center {
+          .top-stack-inner {
             width: min(100%, calc(100% - 16px));
+            display: block;
+          }
+
+          .top-center {
+            width: 100%;
+            gap: 8px;
+          }
+
+          .top-nav-row {
+            grid-template-columns: 36px 1fr 36px;
+            gap: 8px;
+          }
+
+          .music-icon-btn {
+            width: 36px;
+            height: 36px;
           }
 
           .wrap {
             width: min(100%, calc(100% - 16px));
             padding: 200px 0 100px;
+          }
+
+          .section-title {
+            font-size: clamp(30px, 10vw, 46px);
+          }
+
+          .section-angle {
+            font-size: clamp(26px, 8vw, 40px);
+          }
+
+          .contact-chip {
+            font-size: 18px;
+          }
+
+          .contact-big strong {
+            font-size: 28px;
           }
 
           .hero-title {
@@ -3153,6 +4852,16 @@ export default function PortfolioPage() {
 
           .hero-copy {
             font-size: 14px;
+          }
+
+          .opening-loader-card {
+            min-width: min(100%, calc(100vw - 20px));
+            border-radius: 18px;
+            padding: 16px;
+          }
+
+          .opening-name {
+            font-size: clamp(24px, 8vw, 40px);
           }
 
           .nav-shell {
@@ -3199,6 +4908,18 @@ export default function PortfolioPage() {
             align-items: stretch;
           }
 
+          .reviews-stat-row {
+            grid-template-columns: 1fr;
+          }
+
+          .reviews-toolbar {
+            gap: 6px;
+          }
+
+          .reviews-search {
+            flex-basis: 100%;
+          }
+
           .search-shell {
             min-width: 0;
             max-width: none;
@@ -3210,12 +4931,20 @@ export default function PortfolioPage() {
         }
 
         @media (max-width: 520px) {
-          .top-center {
+          .top-stack-inner {
             width: min(100%, calc(100% - 12px));
+          }
+
+          .top-center {
+            width: 100%;
           }
 
           .wrap {
             padding: 194px 0 90px;
+          }
+
+          .dev-grid {
+            grid-template-columns: 1fr;
           }
 
           .intro {
@@ -3224,6 +4953,11 @@ export default function PortfolioPage() {
 
           .hero-copy {
             max-width: 100%;
+          }
+
+          .vouch-quote,
+          .vouch-detail {
+            min-height: 0;
           }
 
           .page-loader-card {
@@ -3236,6 +4970,17 @@ export default function PortfolioPage() {
 
           .panel-head h2 {
             font-size: clamp(24px, 9vw, 34px);
+          }
+
+          .top-nav-row {
+            grid-template-columns: 32px 1fr 32px;
+            padding: 5px;
+          }
+
+          .music-icon-btn,
+          .music-icon-slot {
+            width: 32px;
+            height: 32px;
           }
 
           .section-heading h3 {
@@ -3266,8 +5011,7 @@ export default function PortfolioPage() {
           .info-card:hover,
           .policy-card:hover,
           .big-showcase-card:hover,
-          .feature-card:hover,
-          .workflow-card:hover {
+          .vouch-card:hover {
             transform: none;
             box-shadow: none;
           }
